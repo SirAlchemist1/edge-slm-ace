@@ -61,6 +61,12 @@ Team handoff notes for the SLM-ACE project.
   - `prune_every_n` parameter (currently 10)
   - Reflection triggers (currently: always on incorrect, periodically on correct)
 
+**Important**: You will implement and iterate ACE logic in:
+- `slm_ace/ace_roles.py` (main file for prompts)
+- `slm_ace/playbook.py` (data structures — don't change API)
+
+You do NOT need to touch `model_manager.py` or `runner.py` function signatures.
+
 ### Testing Your Changes
 
 **Quick test (tiny model, Mac-friendly):**
@@ -74,6 +80,17 @@ python -m scripts.run_experiment \
   --limit 3
 ```
 
+**ACE epoch evolution test (recommended for development):**
+```bash
+# Test ACE evolution over multiple epochs (tiny model, Mac-friendly)
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 3 \
+  --limit 3 \
+  --output-dir results/ace_tiny
+```
+
 **Real test (Phi-3 Mini, on GPU laptop):**
 ```bash
 # Test on any of the three tasks: tatqa_tiny, medqa_tiny, iot_tiny
@@ -83,6 +100,13 @@ python -m scripts.run_experiment \
   --mode ace \
   --playbook-path playbooks/tatqa_playbook.jsonl \
   --output-path results/tatqa_phi3_ace.csv
+
+# Or use ACE epoch driver for multi-epoch evolution:
+python -m scripts.run_ace_epoch \
+  --model-id phi3-mini \
+  --task-name tatqa_tiny \
+  --epochs 5 \
+  --output-dir results/ace_phi3
 ```
 
 **What to check:**
@@ -125,16 +149,26 @@ python -m scripts.run_experiment \
    - **Goal**: Add percentiles (p50, p95, p99)
    - Consider per-step breakdown (generation vs reflection latency)
 
-**New file to create: `scripts/summarize_results.py`**
+**Summary script: `scripts/summarize_results.py`** (already created by Person 1)
 
-Create a script that:
-- Reads multiple CSV result files
-- Computes aggregate statistics:
-  - Accuracy: baseline vs ACE
-  - Latency: baseline vs ACE
-  - Per-model comparison
-  - Per-domain comparison
-- Outputs tables/markdown for paper
+This script:
+- Reads all CSV files in a directory
+- Groups by `model_id`, `task_name`, `mode` (and `epoch` if present)
+- Computes aggregate statistics (accuracy, latency, sample counts)
+- Outputs CSV summary and Markdown table
+
+**You will implement and extend metrics in:**
+- `slm_ace/metrics.py` (main file for answer comparison and latency metrics)
+
+**You will run larger models and more samples on:**
+- GPU laptop or supercomputer
+
+**Use these scripts for experiments:**
+- `scripts.run_experiment` — Single baseline or ACE run
+- `scripts.run_ace_epoch` — Multi-epoch ACE evolution (epoch 0 = baseline, epochs 1+ = ACE)
+- `scripts.summarize_results` — Aggregate CSVs into summary tables
+
+You should track per-epoch improvements and possibly add CI/bootstrap scripts later.
 
 ### Testing Your Changes
 

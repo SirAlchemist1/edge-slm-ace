@@ -1,0 +1,38 @@
+[
+  {
+    "id": "iot_1",
+    "domain": "iot",
+    "question": "What is the anomaly threshold for temperature sensor readings?",
+    "context": "A temperature sensor reports readings every minute. Normal range is 20-25°C. Readings above 30°C or below 15°C are considered anomalies.",
+    "answer": "30"
+  },
+  {
+    "id": "iot_2",
+    "domain": "iot",
+    "question": "What action should be taken when motion sensor detects activity during off-hours?",
+    "context": "Motion sensors are active 24/7. During business hours (9 AM - 5 PM), activity is normal. Outside these hours, activity triggers an alert.",
+    "answer": "alert"
+  },
+  {
+    "id": "iot_3",
+    "domain": "iot",
+    "question": "What is the recommended sampling rate for humidity sensors?",
+    "context": "Humidity sensors should be sampled every 5 minutes to detect rapid changes. Battery-powered sensors can sample every 15 minutes to conserve energy.",
+    "answer": "5 minutes"
+  },
+  {
+    "id": "iot_4",
+    "domain": "iot",
+    "question": "What is the maximum acceptable latency for door sensor alerts?",
+    "context": "Door sensors must report state changes within 2 seconds to ensure security. Network latency should not exceed 500ms.",
+    "answer": "2 seconds"
+  },
+  {
+    "id": "iot_5",
+    "domain": "iot",
+    "question": "What battery level triggers a low-power warning for IoT devices?",
+    "context": "IoT devices operate normally above 20% battery. Below 20%, devices enter power-saving mode. Below 10%, devices send critical alerts.",
+    "answer": "20%"
+  }
+]
+

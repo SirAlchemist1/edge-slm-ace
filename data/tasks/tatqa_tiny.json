@@ -1,0 +1,24 @@
+[
+  {
+    "id": "tatqa_1",
+    "domain": "finance",
+    "question": "What is the total revenue before tax?",
+    "context": "Company ABC reported revenue of $100,000 and expenses of $30,000. The tax rate is 20%.",
+    "answer": "100000"
+  },
+  {
+    "id": "tatqa_2",
+    "domain": "finance",
+    "question": "What is the net profit after tax?",
+    "context": "Company XYZ has revenue of $50,000 and expenses of $20,000. Tax rate is 15%.",
+    "answer": "25500"
+  },
+  {
+    "id": "tatqa_3",
+    "domain": "finance",
+    "question": "What is the profit margin percentage?",
+    "context": "A company earned $200,000 in revenue and had $120,000 in expenses.",
+    "answer": "40"
+  }
+]
+

@@ -1,0 +1,21 @@
+[
+  {
+    "id": "medqa_1",
+    "domain": "medical",
+    "question": "What is the most common cause of chest pain?",
+    "answer": "angina"
+  },
+  {
+    "id": "medqa_2",
+    "domain": "medical",
+    "question": "What medication is typically used to treat hypertension?",
+    "answer": "ACE inhibitors"
+  },
+  {
+    "id": "medqa_3",
+    "domain": "medical",
+    "question": "What is the normal range for blood pressure?",
+    "answer": "120/80"
+  }
+]
+

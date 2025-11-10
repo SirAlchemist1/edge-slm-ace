@@ -408,6 +408,50 @@ python -m scripts.summarize_results \
 
 **Note**: All three scripts are Mac-safe (no GPU-specific imports). Heavy models should be run by Archit on GPU/supercomputer.
 
+### 4. Run Grid Experiments
+
+Run experiments for all combinations of model × task × mode from a config file:
+
+```bash
+# Dry-run to see what would be executed
+python -m scripts.run_grid --dry-run
+
+# Run with tiny-gpt2 only (Mac-safe, for testing)
+python -m scripts.run_grid --limit 3 --model-id sshleifer/tiny-gpt2
+
+# Run full grid (use on GPU laptop/supercomputer)
+python -m scripts.run_grid
+```
+
+**What it does:**
+- Reads `configs/exp_grid.yaml` for model/task/mode combinations
+- For `baseline` mode: Calls `run_experiment`
+- For `ace` mode: Calls `run_ace_epoch` (epoch 0 = baseline, epoch 1 = ACE)
+- Saves results to `results/grid/`
+
+**Options:**
+- `--config`: Path to grid config YAML (default: `configs/exp_grid.yaml`)
+- `--dry-run`: Print commands without executing
+- `--limit`: Limit examples per experiment (optional)
+- `--model-id`: Filter to only run this model (optional)
+- `--output-dir`: Output directory (default: `results/grid`)
+
+**Config file format** (`configs/exp_grid.yaml`):
+```yaml
+models:
+  - phi3-mini
+  - llama-3.2-1b
+tasks:
+  - tatqa_tiny
+  - medqa_tiny
+  - iot_tiny
+modes:
+  - baseline
+  - ace
+```
+
+**Note**: Grid runner is Mac-safe. For production runs with real models, use GPU laptop/supercomputer.
+
 ### ACE mode (single run)
 ```bash
 python -m scripts.run_experiment \

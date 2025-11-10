@@ -167,6 +167,7 @@ This script:
 - `scripts.run_experiment` — Single baseline or ACE run
 - `scripts.run_ace_epoch` — Multi-epoch ACE evolution (epoch 0 = baseline, epochs 1+ = ACE)
 - `scripts.summarize_results` — Aggregate CSVs into summary tables
+- `scripts.run_grid` — Run grid experiments (model × task × mode) from `configs/exp_grid.yaml`
 
 You should track per-epoch improvements and possibly add CI/bootstrap scripts later.
 
@@ -249,6 +250,11 @@ python -m scripts.run_experiment \
 - `slm_ace/utils.py` ✅
 - `slm_ace/runner.py` (pipeline, but Sathwik adjusts ACE logic)
 - `scripts/run_experiment.py` ✅
+- `scripts/run_all_tiny_baselines.py` ✅
+- `scripts/run_ace_epoch.py` ✅
+- `scripts/summarize_results.py` ✅
+- `scripts/run_grid.py` ✅
+- `configs/exp_grid.yaml` ✅
 - `DEV_NOTES_PERSON1.md` ✅
 
 **Person 2 (Sathwik) — ACE Logic:**

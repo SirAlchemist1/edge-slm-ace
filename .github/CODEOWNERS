@@ -1,0 +1,42 @@
+# CODEOWNERS for edge-slm-ace
+# This file defines code ownership and assigns reviewers automatically
+#
+# Syntax: <file-pattern> @github-username
+#
+# IMPORTANT: Replace placeholders with actual GitHub usernames:
+#   @GH_USER_SURYODAYA  - Person 1 (Suryodaya): Infrastructure & Core Framework
+#   @GH_USER_SATHWIK    - Person 2 (Sathwik): Self-Learning Logic & ACE Prompts
+#   @GH_USER_ARCHIT     - Person 3 (Archit): Evaluation & Metrics
+
+# Default owners for everything
+*  @GH_USER_SURYODAYA
+
+# Infrastructure & Core Framework
+slm_ace/model_manager.py    @GH_USER_SURYODAYA
+slm_ace/utils.py            @GH_USER_SURYODAYA
+slm_ace/config.py           @GH_USER_SURYODAYA
+slm_ace/runner.py           @GH_USER_SURYODAYA @GH_USER_ARCHIT
+
+# ACE & Adaptation Logic
+slm_ace/ace_roles.py        @GH_USER_SATHWIK
+slm_ace/playbook.py         @GH_USER_SATHWIK @GH_USER_SURYODAYA
+
+# Evaluation & Metrics
+slm_ace/metrics.py          @GH_USER_ARCHIT
+scripts/run_eval_matrix.py  @GH_USER_ARCHIT
+notebooks/                  @GH_USER_ARCHIT
+
+# Scripts
+scripts/run_experiment.py   @GH_USER_SURYODAYA @GH_USER_ARCHIT
+scripts/run_ace_epoch.py    @GH_USER_SATHWIK
+
+# Tests
+tests/test_model_manager.py @GH_USER_SURYODAYA
+tests/test_playbook.py      @GH_USER_SATHWIK
+tests/test_runner_smoke.py  @GH_USER_SURYODAYA @GH_USER_ARCHIT
+
+# Configuration & Docs
+README.md                   @GH_USER_SURYODAYA @GH_USER_SATHWIK @GH_USER_ARCHIT
+requirements.txt            @GH_USER_SURYODAYA
+pyproject.toml              @GH_USER_SURYODAYA
+.github/                    @GH_USER_SURYODAYA

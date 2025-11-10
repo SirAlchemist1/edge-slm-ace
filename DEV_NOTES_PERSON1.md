@@ -132,6 +132,7 @@ This will:
 
 - **`tatqa_tiny.json`**: 3 finance QA examples (for testing)
 - **`medqa_tiny.json`**: 3 medical QA examples (for testing)
+- **`iot_tiny.json`**: 5 IoT/anomaly detection examples (for testing)
 
 ### Output Directories
 
@@ -332,7 +333,82 @@ python -m scripts.run_experiment \
 
 **Note**: If Phi-3 Mini is too slow/heavy on Mac M3, that's fine. Note it in your testing and use GPU laptop/supercomputer for production runs.
 
-### ACE mode
+## New Experiment Helpers
+
+Three new driver scripts are available for running experiments:
+
+### 1. Run All Tiny Baselines
+
+Run baseline evaluation on all three tiny tasks with tiny-gpt2 (Mac-safe):
+
+```bash
+python -m scripts.run_all_tiny_baselines \
+  --limit 3 \
+  --output-dir results/tiny
+```
+
+**What it does:**
+- Loops over `tatqa_tiny`, `medqa_tiny`, `iot_tiny`
+- Runs baseline mode for each with `tiny-gpt2`
+- Saves CSVs to `results/tiny/`
+- Prints summary table at the end
+
+**Options:**
+- `--limit`: Number of examples per task (default: 3)
+- `--output-dir`: Output directory (default: `results/tiny`)
+- `--model-id`: Model to use (default: `sshleifer/tiny-gpt2`)
+
+### 2. Run ACE Evolution (Multi-Epoch)
+
+Run ACE evolution over multiple epochs (epoch 0 = baseline, epochs 1+ = ACE):
+
+```bash
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 3 \
+  --limit 3 \
+  --output-dir results/ace_tiny
+```
+
+**What it does:**
+- Epoch 0: Runs baseline (no ACE)
+- Epochs 1+: Runs ACE mode with playbook evolution
+- Saves separate CSV for each epoch
+- Prints epoch-by-epoch summary table
+
+**Options:**
+- `--model-id`: Model ID (required)
+- `--task-name`: Task name (required, e.g., `tatqa_tiny`, `medqa_tiny`, `iot_tiny`)
+- `--epochs`: Total epochs (default: 3)
+- `--limit`: Limit examples per epoch (optional)
+- `--output-dir`: Output directory (default: `results/ace`)
+
+**Note**: This script is Mac-safe for tiny models. For heavy models (phi3-mini, mistral, llama-3), use GPU laptop/supercomputer.
+
+### 3. Summarize Results
+
+Aggregate statistics from multiple CSV files:
+
+```bash
+python -m scripts.summarize_results \
+  --input-dir results/ace_tiny \
+  --output-path results/ace_tiny_summary.csv
+```
+
+**What it does:**
+- Reads all `*.csv` files in input directory
+- Groups by `model_id`, `task_name`, `mode` (and `epoch` if present)
+- Computes: accuracy, avg_latency_ms, num_samples
+- Saves summary CSV and prints Markdown table
+
+**Options:**
+- `--input-dir`: Directory with CSV files (required)
+- `--output-path`: Output CSV path (default: `<input-dir>/summary.csv`)
+
+**Note**: All three scripts are Mac-safe (no GPU-specific imports). Heavy models should be run by Archit on GPU/supercomputer.
+
+### ACE mode (single run)
 ```bash
 python -m scripts.run_experiment \
   --model-id tiny-gpt2 \

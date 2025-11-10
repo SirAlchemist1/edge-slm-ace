@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edge-slm-ace"
+version = "0.1.0"
+description = "Domain-Specific Benchmarking of Small Language Models for Edge Devices with Agentic Context Engineering"
+authors = [
+    {name = "Suryodaya", email = "suryodaya@example.com"},
+    {name = "Sathwik", email = "sathwik@example.com"},
+    {name = "Archit", email = "archit@example.com"},
+]
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.35.0",
+    "pandas>=2.0.0",
+    "tqdm>=4.66.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+]
+
+[tool.black]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -165,39 +165,6 @@ edge-slm-ace/
 └── pyproject.toml               ✓ Created
 ```
 
-## Next Steps
-
-To complete the repository setup:
-
-1. **Add collaborators** (Settings → Collaborators → Add people)
-   - Add Person 2 (Sathwik) and Person 3 (Archit) with Write access
-   - Update `.github/CODEOWNERS` with actual GitHub usernames
-
-2. **Enable branch protection** (Settings → Branches → Add rule for `main`)
-   - Require pull request reviews (1 approver)
-   - Require status checks (CI workflow)
-   - Prevent direct pushes to main
-
-3. **Create remaining directory structure** via local git:
-   ```bash
-   # Clone locally
-   git clone https://github.com/SirAlchemist1/edge-slm-ace.git
-   cd edge-slm-ace
-   
-   # Create directory structure
-   mkdir -p slm_ace scripts data/tasks playbooks tests notebooks results
-   touch slm_ace/__init__.py
-   # ... create remaining stub files
-   
-   git add .
-   git commit -m "Add project directory structure"
-   git push origin main
-   ```
-
-4. **Enable GitHub Features**
-   - Issues: Already enabled
-   - Discussions: Optional for team communication
-   - Projects: Optional for task management
 
 ## License
 

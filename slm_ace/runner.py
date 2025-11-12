@@ -77,6 +77,8 @@ def run_dataset_baseline(
     predictions = []
     labels = []
     latencies = []
+    prompt_tokens_list = []
+    prompt_output_tokens_list = []
     
     for example in dataset:
         example_id = example.get("id", "unknown")
@@ -130,6 +132,8 @@ def run_dataset_baseline(
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+        prompt_tokens_list.append(prompt_tokens)
+        prompt_output_tokens_list.append(output_tokens)
     
     # Compute summary
     accuracy = compute_accuracy(predictions, labels)
@@ -139,6 +143,8 @@ def run_dataset_baseline(
         "accuracy": accuracy,
         "avg_latency_ms": avg_latency,
         "num_examples": len(dataset),
+        "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list),
+        "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list)
     }
     
     return results, summary
@@ -230,6 +236,8 @@ def run_dataset_ace(
     predictions = []
     labels = []
     latencies = []
+    prompt_tokens_list=[]
+    prompt_output_tokens_list = []
     
     for step, example in enumerate(dataset, start=1):
         example_id = example.get("id", "unknown")
@@ -338,6 +346,8 @@ def run_dataset_ace(
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+        prompt_tokens_list.append(prompt_tokens)
+        prompt_output_tokens_list.append(output_tokens)
     
     # Save playbook after run
     playbook.save(playbook_path)
@@ -351,6 +361,8 @@ def run_dataset_ace(
         "avg_latency_ms": avg_latency,
         "num_examples": len(dataset),
         "playbook_size": len(playbook.entries),
+        "mean_prompt_token":sum(prompt_tokens_list) / len(prompt_tokens_list),
+        "mean_output_token":sum(prompt_output_tokens_list) / len(prompt_output_tokens_list)
     }
     
     return results, summary

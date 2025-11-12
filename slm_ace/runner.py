@@ -309,6 +309,9 @@ def run_dataset_ace(
         # Step 6: Occasional pruning
         if step % prune_every_n == 0:
             playbook.prune(max_entries_per_domain=32)
+        score = semantic_answer_score(answer, ground_truth)
+        prompt_tokens = len(tokenizer.encode(question, add_special_tokens=False))
+        output_tokens = len(tokenizer.encode(answer, add_special_tokens=False))
         
         # Record result with consistent schema
         result = {
@@ -326,6 +329,9 @@ def run_dataset_ace(
             "correct": 1 if correct else 0,
             "reflection_latency_ms": reflection_latency_ms,
             "reflected": should_reflect,
+            "semantic_score": score,
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens
         }
         results.append(result)
         

@@ -10,7 +10,7 @@ import pandas as pd
 from slm_ace.config import get_model_config, get_task_config, ModelConfig
 from slm_ace.model_manager import load_model_and_tokenizer
 from slm_ace.playbook import Playbook
-from slm_ace.runner import run_dataset_baseline, run_dataset_ace
+from slm_ace.runner import run_dataset_baseline, run_dataset_ace, run_dataset_self_refine
 from slm_ace.utils import get_device
 
 
@@ -63,20 +63,20 @@ def main():
         "--task-name",
         type=str,
         default=None,
-        help="Task name from registry (e.g., 'tatqa_tiny', 'medqa_tiny'). If provided, overrides --dataset-path and --domain",
+        help="Task name from registry (e.g., 'tatqa_tiny', 'medqa_tiny', 'iot_tiny'). If provided, overrides --dataset-path and --domain",
     )
     parser.add_argument(
         "--domain",
         type=str,
         default=None,
-        help="Domain name (e.g., 'finance', 'medical'). Required if --task-name not provided",
+        help="Domain name (e.g., 'finance', 'medical', 'iot'). Required if --task-name not provided",
     )
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["baseline", "ace"],
+        choices=["baseline", "ace", "self_refine"],
         required=True,
-        help="Run mode: 'baseline' or 'ace'",
+        help="Run mode: 'baseline', 'ace', or 'self_refine'",
     )
     parser.add_argument(
         "--playbook-path",
@@ -113,6 +113,13 @@ def main():
         type=int,
         default=None,
         help="Limit number of examples to process (useful for quick testing)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        choices=["cpu", "cuda", "mps"],
+        help="Optional device override. If not set, auto-detects (cuda -> mps -> cpu).",
     )
     
     args = parser.parse_args()
@@ -161,14 +168,22 @@ def main():
         if args.top_p is not None:
             config.top_p = args.top_p
         
-        # Get device
-        device = get_device()
-        print(f"Using device: {device}")
+        # Resolve device (with override support)
+        if args.device:
+            from slm_ace.utils import resolve_device_override
+            device = resolve_device_override(args.device)
+        else:
+            device = get_device()
+        print(f"Using device: {device} (override: {args.device or 'auto'})")
         
         # Load model and tokenizer
         print(f"Loading model: {config.model_id}")
         try:
-            model, tokenizer = load_model_and_tokenizer(config.model_id, device=device)
+            model, tokenizer = load_model_and_tokenizer(
+                config.model_id,
+                device=device,
+                device_override=args.device,
+            )
             print("Model loaded successfully.")
         except Exception as e:
             print(f"Error: Failed to load model '{config.model_id}': {e}")
@@ -217,6 +232,24 @@ def main():
                 )
             except Exception as e:
                 print(f"Error during baseline evaluation: {e}")
+                import traceback
+                traceback.print_exc()
+                return 1
+        elif args.mode == "self_refine":
+            print("Running self-refinement evaluation...")
+            try:
+                results, summary = run_dataset_self_refine(
+                    model=model,
+                    tokenizer=tokenizer,
+                    dataset=dataset,
+                    domain=domain,
+                    config=config,
+                    model_id=config.model_id,
+                    task_name=task_name or dataset_path.stem,
+                    mode=args.mode,
+                )
+            except Exception as e:
+                print(f"Error during self-refinement evaluation: {e}")
                 import traceback
                 traceback.print_exc()
                 return 1

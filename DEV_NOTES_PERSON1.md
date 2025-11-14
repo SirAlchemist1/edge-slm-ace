@@ -495,6 +495,158 @@ All result CSVs follow a consistent schema:
 - `reflection_latency_ms`: Time spent on reflection
 - `reflected`: Whether reflection occurred for this example
 
+## Final Model + Task Choices
+
+### Main Task for Real Experiments
+- **Primary task**: `medqa_tiny` (Medical QA) - chosen as the main task for real experiments
+- **Rationale**: Medical QA provides a good balance of domain specificity and evaluation clarity
+
+### Models for Comparison
+We will compare the following models on the main task:
+
+1. **Vanilla Phi-3 Mini** (`phi3-mini`): `microsoft/Phi-3-mini-4k-instruct`
+   - 3.8B parameters
+   - Baseline small language model without fine-tuning
+
+2. **Vanilla Llama 3.2 1B** (`llama-3.2-1b`): `meta-llama/Llama-3.2-1B-Instruct`
+   - 1B parameters
+   - Ultra-lightweight baseline
+
+3. **Fine-tuned Small Model** (`medqa_finetuned_small`): `microsoft/DialoGPT-small`
+   - Small model fine-tuned on medical QA (placeholder for actual fine-tuned model)
+   - Represents the "fine-tuned small upper bound" for comparison
+   - Note: In production, this would be replaced with an actual fine-tuned model on MedQA
+
+### Comparison Setup
+- **Baseline**: Vanilla models (Phi-3 Mini, Llama 3.2 1B) without any adaptation
+- **ACE-full**: Vanilla models with full ACE playbook (unbounded)
+- **ACE-working-memory**: Vanilla models with limited playbook (token budget)
+- **Self-refine**: Vanilla models with per-sample self-refinement (no persistent playbook)
+- **Fine-tuned**: Pre-fine-tuned small model (upper bound comparison)
+
+### ACE Working Memory Scoring Logic
+
+The `ace_working_memory` mode uses a scored, limited playbook that strategically forgets entries under a token budget. The scoring formula combines:
+
+1. **Correctness ratio**: `success_count / (success_count + failure_count + 1)`
+   - Measures how often an entry appears in correct vs incorrect examples
+   - Higher ratio = more reliable entry
+
+2. **Recency decay**: `1.0 / (1.0 + alpha * age_in_steps)`
+   - Exponential decay based on steps since last use
+   - More recently used entries get higher scores
+   - Alpha = 0.1 (decay rate)
+
+3. **Genericity penalty**: -0.5 if entry is generic
+   - Generic entries (e.g., "think carefully", very short entries) are penalized
+   - Heuristics detect generic entries based on phrase matching and length
+
+**Token budget**: Default 500 tokens. Entries are greedily selected by score until budget is exceeded.
+**Token estimation**: Approximated as `word_count * 1.3` (doesn't require tokenizer calls).
+
+This scoring approach allows the playbook to prioritize:
+- Entries that have been successful in the past
+- Recently used entries (working memory effect)
+- Specific, actionable entries over generic advice
+
+## Device Override
+
+You can force a specific device using the `--device` flag:
+
+```bash
+# Archit on GPU laptop (CUDA)
+python -m scripts.run_experiment \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --mode baseline \
+  --device cuda \
+  --output-path results/medqa_phi3_baseline.csv
+
+# CPU-only sanity check
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode baseline \
+  --device cpu \
+  --limit 3 \
+  --output-path results/tatqa_tiny_cpu_baseline.csv
+
+# ACE epoch with device override
+python -m scripts.run_ace_epoch \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_working_memory \
+  --device cuda \
+  --output-dir results/ace_phi3
+```
+
+**Note**: If the requested device is not available, the code will automatically fall back to CPU with a warning.
+
+## How to Run All Modes Quickly (Tiny)
+
+Quick sanity tests for all modes on `tatqa_tiny` with `--limit 5`:
+
+### 1. Baseline
+```bash
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode baseline \
+  --output-path results/check_tiny_baseline.csv \
+  --limit 5
+```
+
+### 2. ACE Full Mode
+```bash
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_full \
+  --limit 5 \
+  --output-dir results/check_ace_tiny
+```
+
+### 3. ACE Working Memory Mode
+```bash
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_working_memory \
+  --token-budget 500 \
+  --limit 5 \
+  --output-dir results/check_ace_tiny
+```
+
+### 4. Self-Refine Mode
+```bash
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode self_refine \
+  --output-path results/check_tiny_self_refine.csv \
+  --limit 5
+```
+
+### 5. Summarize Results
+```bash
+python -m scripts.summarize_results \
+  --input-dir results/check_ace_tiny \
+  --output-path results/check_ace_summary.csv
+```
+
+**Note**: The fine-tuned small model (`medqa_finetuned_small`) targets medical QA (`medqa_tiny`), so use that task when testing it:
+```bash
+python -m scripts.run_experiment \
+  --model-id medqa_finetuned_small \
+  --task-name medqa_tiny \
+  --mode baseline \
+  --output-path results/check_finetuned_baseline.csv \
+  --limit 5
+```
+
 ## Next Steps for Person 1
 
 1. ✅ **Done**: Core infrastructure is in place

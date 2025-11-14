@@ -28,6 +28,58 @@ Team handoff notes for the SLM-ACE project.
 
 ## For Sathwik (Person 2 — ACE / Prompts)
 
+### ACE Modes
+
+The system now supports two ACE modes:
+
+1. **`ace_full`**: Unbounded playbook mode (default)
+   - Uses top-k entries (default k=5) from playbook
+   - No token budget limit
+   - Good for exploring full playbook evolution
+
+2. **`ace_working_memory`**: Token-budgeted playbook mode
+   - Uses scored entries that fit within a token budget (default: 500 tokens)
+   - Entries are scored by: correctness ratio + recency decay - genericity penalty
+   - Scoring logic lives in `slm_ace/playbook.py` (PlaybookEntry.score() method)
+   - Token budget selection in `slm_ace/playbook.py` (get_top_entries_for_budget())
+
+### Testing ACE Modes
+
+Quick test with tiny model (Mac-safe):
+```bash
+# ACE full mode
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_full \
+  --limit 5 \
+  --output-dir results/ace_tiny
+
+# ACE working memory mode
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_working_memory \
+  --token-budget 500 \
+  --limit 5 \
+  --output-dir results/ace_tiny
+```
+
+**On your GPU laptop**: Always pass `--device cuda` once your CUDA PyTorch is working:
+```bash
+python -m scripts.run_ace_epoch \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --epochs 3 \
+  --ace-mode ace_working_memory \
+  --device cuda \
+  --output-dir results/ace_phi3
+```
+
+## For Sathwik (Person 2 — ACE / Prompts)
+
 ### Your Primary Files
 
 **`slm_ace/ace_roles.py`** — This is your main workspace:
@@ -128,6 +180,69 @@ python -m scripts.run_ace_epoch \
 - Deduplication works (similar lessons merge)
 
 ---
+
+## For Archit (Person 3 — Metrics / Evaluation)
+
+### Metrics and Summary Script
+
+The metrics system now includes:
+
+1. **Exact accuracy**: Case-insensitive exact match (already implemented)
+2. **Semantic accuracy**: Sentence embedding similarity (if sentence-transformers available)
+   - Uses `all-MiniLM-L6-v2` model for embeddings
+   - Falls back to exact match if sentence-transformers not available
+   - Threshold: 0.7 (configurable)
+
+3. **Token metrics**: 
+   - `prompt_tokens`: Full input prompt tokens
+   - `context_tokens`: Playbook context tokens (for ACE modes)
+   - `output_tokens`: Generated output tokens
+
+4. **Summary script**: `scripts/summarize_results.py`
+   - Groups by model_id, task_name, mode (and epoch if present)
+   - Computes: accuracy_exact, accuracy_semantic, avg_latency_ms, avg_prompt_tokens, avg_context_tokens, avg_output_tokens
+   - Outputs CSV summary and Markdown table
+
+### Testing Metrics
+
+Generate test data and summarize:
+```bash
+# Run experiments
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode baseline \
+  --output-path results/test_baseline.csv \
+  --limit 5
+
+# Summarize results
+python -m scripts.summarize_results \
+  --input-dir results/ \
+  --output-path results/summary.csv
+```
+
+**Note**: You can run small tests locally with `--limit 5`, full runs later on GPU/supercomputer.
+
+**On your GPU laptop**: Always pass `--device cuda` once your CUDA PyTorch is working. If CUDA is misconfigured, you can temporarily run with `--device cpu` for debugging:
+
+```bash
+# GPU run (once CUDA is set up)
+python -m scripts.run_experiment \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --mode baseline \
+  --device cuda \
+  --output-path results/medqa_phi3_baseline.csv
+
+# CPU fallback (for debugging)
+python -m scripts.run_experiment \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --mode baseline \
+  --device cpu \
+  --limit 5 \
+  --output-path results/medqa_phi3_cpu_test.csv
+```
 
 ## For Archit (Person 3 — Metrics / Evaluation)
 

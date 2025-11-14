@@ -2,6 +2,31 @@
 """Summarize experiment results from CSV files.
 
 Reads all CSV files in a directory and produces aggregate statistics.
+
+Required CSV columns:
+- model_id: Model identifier
+- task_name: Task identifier
+- mode: Evaluation mode (baseline, ace_full, ace_working_memory, self_refine)
+- correct: Binary correctness (1 or 0)
+- pred: Model prediction
+- gold: Ground truth answer
+- latency_ms: Generation latency in milliseconds
+
+Optional CSV columns:
+- epoch: Epoch number (for multi-epoch experiments)
+- prompt_tokens: Number of tokens in the prompt
+- context_tokens: Number of tokens in context (playbook for ACE modes)
+- output_tokens: Number of tokens in the output
+- reflection_latency_ms: Reflection latency (for ACE modes)
+
+Summary metrics computed:
+- accuracy_exact: Mean of 'correct' column (exact match accuracy)
+- accuracy_semantic: Semantic similarity accuracy (if sentence-transformers available)
+- avg_latency_ms: Mean latency in milliseconds
+- avg_prompt_tokens: Average prompt tokens (if column present)
+- avg_context_tokens: Average context tokens (if column present)
+- avg_output_tokens: Average output tokens (if column present)
+- num_samples: Number of samples in the group
 """
 
 import argparse
@@ -9,6 +34,8 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+
+from slm_ace.metrics import compute_semantic_accuracy
 
 
 def main():
@@ -78,9 +105,34 @@ def main():
             group_dict = {group_cols[0]: group_key}
         
         # Compute metrics
-        accuracy = group_df["correct"].mean()
+        accuracy_exact = group_df["correct"].mean()
         avg_latency_ms = group_df["latency_ms"].mean()
         num_samples = len(group_df)
+        
+        # Compute semantic accuracy if possible
+        try:
+            accuracy_semantic = compute_semantic_accuracy(
+                preds=group_df["pred"].tolist(),
+                labels=group_df["gold"].tolist(),
+            )
+            if accuracy_semantic is not None:
+                group_dict["accuracy_semantic"] = accuracy_semantic
+        except Exception:
+            # If semantic accuracy fails, skip it
+            pass
+        
+        # Token metrics
+        if "prompt_tokens" in group_df.columns:
+            avg_prompt_tokens = group_df["prompt_tokens"].mean()
+            group_dict["avg_prompt_tokens"] = avg_prompt_tokens
+        
+        if "context_tokens" in group_df.columns:
+            avg_context_tokens = group_df["context_tokens"].mean()
+            group_dict["avg_context_tokens"] = avg_context_tokens
+        
+        if "output_tokens" in group_df.columns:
+            avg_output_tokens = group_df["output_tokens"].mean()
+            group_dict["avg_output_tokens"] = avg_output_tokens
         
         # Add optional metrics if present
         if "reflection_latency_ms" in group_df.columns:
@@ -88,7 +140,7 @@ def main():
             group_dict["avg_reflection_latency_ms"] = avg_reflection_latency
         
         group_dict.update({
-            "accuracy": accuracy,
+            "accuracy_exact": accuracy_exact,
             "avg_latency_ms": avg_latency_ms,
             "num_samples": num_samples,
         })
@@ -124,7 +176,14 @@ def main():
     header_cols = ["Model", "Task", "Mode"]
     if "epoch" in summary_df.columns:
         header_cols.append("Epoch")
-    header_cols.extend(["Accuracy", "Latency (ms)", "Samples"])
+    header_cols.extend(["Exact Acc", "Semantic Acc"])
+    if "avg_prompt_tokens" in summary_df.columns:
+        header_cols.append("Prompt Tokens")
+    if "avg_context_tokens" in summary_df.columns:
+        header_cols.append("Context Tokens")
+    if "avg_output_tokens" in summary_df.columns:
+        header_cols.append("Output Tokens")
+    header_cols.extend(["Latency (ms)", "Samples"])
     if "avg_reflection_latency_ms" in summary_df.columns:
         header_cols.append("Reflection Latency (ms)")
     
@@ -140,8 +199,23 @@ def main():
         ]
         if "epoch" in summary_df.columns:
             row_values.append(str(int(row.get("epoch", 0))))
+        
+        # Accuracy metrics
+        row_values.append(f"{row.get('accuracy_exact', 0):.3f}")
+        if "accuracy_semantic" in summary_df.columns:
+            row_values.append(f"{row.get('accuracy_semantic', 0):.3f}")
+        else:
+            row_values.append("N/A")
+        
+        # Token metrics
+        if "avg_prompt_tokens" in summary_df.columns:
+            row_values.append(f"{row.get('avg_prompt_tokens', 0):.1f}")
+        if "avg_context_tokens" in summary_df.columns:
+            row_values.append(f"{row.get('avg_context_tokens', 0):.1f}")
+        if "avg_output_tokens" in summary_df.columns:
+            row_values.append(f"{row.get('avg_output_tokens', 0):.1f}")
+        
         row_values.extend([
-            f"{row.get('accuracy', 0):.3f}",
             f"{row.get('avg_latency_ms', 0):.2f}",
             str(int(row.get("num_samples", 0))),
         ])
@@ -154,6 +228,19 @@ def main():
     print("=" * 80)
     
     return 0
+
+
+# Example commands:
+#
+# Summarize results from ACE epoch directory:
+# python -m scripts.summarize_results \
+#   --input-dir results/ace_tiny \
+#   --output-path results/ace_tiny_summary.csv
+#
+# Summarize all results in a directory:
+# python -m scripts.summarize_results \
+#   --input-dir results/ \
+#   --output-path results/summary.csv
 
 
 if __name__ == "__main__":

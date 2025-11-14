@@ -187,3 +187,18 @@ def main():
 if __name__ == "__main__":
     sys.exit(main())
 
+
+# Example commands:
+#
+# Dry-run to see what would be executed:
+# python -m scripts.run_grid --dry-run
+#
+# Run with tiny-gpt2 only (Mac-safe, for testing):
+# python -m scripts.run_grid --limit 5 --model-id sshleifer/tiny-gpt2
+#
+# Run full grid (use on GPU laptop/supercomputer):
+# python -m scripts.run_grid
+#
+# Run specific model only:
+# python -m scripts.run_grid --model-id phi3-mini --limit 10
+

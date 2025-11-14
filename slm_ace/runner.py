@@ -11,6 +11,7 @@ from slm_ace.ace_roles import (
     build_reflector_prompt,
     parse_reflector_output_to_lessons,
     choose_lessons_for_playbook,
+    detect_question_type,
 )
 from slm_ace.config import ModelConfig
 from slm_ace.metrics import compute_accuracy, compute_average_latency
@@ -288,12 +289,14 @@ def run_dataset_ace(
                 existing_playbook=playbook,
             )
             
-            # Step 5: Curator - add lessons to playbook
+            # Step 5: Curator - add lessons to playbook with task type
+            task_type = detect_question_type(question, context)
             for lesson in filtered_lessons:
                 entry = playbook.add_entry(
                     domain=domain,
                     text=lesson,
                     step=step,
+                    task_type=task_type,  # Add task type for better organization
                 )
                 # Record feedback based on correctness
                 playbook.record_feedback(entry.id, helpful=correct)
@@ -301,9 +304,13 @@ def run_dataset_ace(
             reflection_text = ""
             reflection_latency_ms = 0.0
         
-        # Step 6: Occasional pruning
+        # Step 6: Occasional pruning with smart forgetting
         if step % prune_every_n == 0:
-            playbook.prune(max_entries_per_domain=32)
+            playbook.prune(
+                max_entries_per_domain=32,
+                min_helpfulness=-2,  # Keep entries with helpfulness >= -2
+                keep_recent_n=5,  # Always keep 5 most recent entries for exploration
+            )
         
         # Record result with consistent schema
         result = {

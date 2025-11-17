@@ -1,0 +1,16 @@
+# Experiment grid configuration
+# This file defines a grid of experiments: model × task × mode
+
+models:
+  - phi3-mini
+  - llama-3.2-1b
+
+tasks:
+  - tatqa_tiny
+  - medqa_tiny
+  - iot_tiny
+
+modes:
+  - baseline
+  - ace
+

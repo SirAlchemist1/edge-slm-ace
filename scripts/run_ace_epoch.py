@@ -112,10 +112,18 @@ def main():
         print(f"Error: Dataset not found: {dataset_path}")
         return 1
     
+    # Load model config first (needed for device resolution)
+    try:
+        config = get_model_config(args.model_id)
+    except Exception as e:
+        print(f"Error: Failed to load model config: {e}")
+        return 1
+    
     # Resolve device (with override support)
+    # Note: load_model_and_tokenizer will handle tiny-gpt2 CPU override internally
     if args.device:
         from slm_ace.utils import resolve_device_override
-        device = resolve_device_override(args.device)
+        device, _ = resolve_device_override(args.device, model_id=config.model_id)
     else:
         device = get_device()
     
@@ -123,13 +131,6 @@ def main():
     mode_str = f"ACE ({args.ace_mode})" if args.epochs > 1 else "Baseline"
     print(f"Model: {args.model_id} | Task: {args.task_name} | Mode: {mode_str} | Device override: {args.device or 'auto'}")
     print(f"Using device: {device}\n")
-    
-    # Load model config
-    try:
-        config = get_model_config(args.model_id)
-    except Exception as e:
-        print(f"Error: Failed to load model config: {e}")
-        return 1
     
     # Load model and tokenizer (reused across epochs)
     print(f"Loading model: {config.model_id}")
@@ -287,5 +288,6 @@ if __name__ == "__main__":
 #   --task-name medqa_tiny \
 #   --epochs 5 \
 #   --ace-mode ace_working_memory \
+#   --device cuda \
 #   --output-dir results/ace_phi3
 

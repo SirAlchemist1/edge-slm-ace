@@ -169,11 +169,15 @@ def main():
             config.top_p = args.top_p
         
         # Resolve device (with override support)
+        # Note: load_model_and_tokenizer will handle tiny-gpt2 CPU override internally
         if args.device:
             from slm_ace.utils import resolve_device_override
-            device = resolve_device_override(args.device)
+            device, forced = resolve_device_override(args.device, model_id=config.model_id)
+            # Pass the resolved device string, not the original override
+            device_override_str = str(device.type) if not forced else "cpu"
         else:
             device = get_device()
+            device_override_str = None
         print(f"Using device: {device} (override: {args.device or 'auto'})")
         
         # Load model and tokenizer
@@ -182,7 +186,7 @@ def main():
             model, tokenizer = load_model_and_tokenizer(
                 config.model_id,
                 device=device,
-                device_override=args.device,
+                device_override=device_override_str,
             )
             print("Model loaded successfully.")
         except Exception as e:

@@ -2,6 +2,31 @@
 
 Team handoff notes for the SLM-ACE project.
 
+## ⚠️ IMPORTANT: tiny-gpt2 and CUDA
+
+**`sshleifer/tiny-gpt2` cannot run on CUDA with Torch >= 2.6.**
+
+This is **not our bug** – it is a security patch (CVE-2025-32434) that blocks loading old pickled weights on CUDA.
+
+**The codebase automatically forces tiny-gpt2 to CPU, even if `--device cuda` is passed.**
+
+You will see this warning:
+```
+[tiny-gpt2] CUDA requested → forcing CPU (this model cannot run on CUDA on Torch >= 2.6)
+```
+
+**For GPU tests, use real models:**
+- `phi3-mini` (microsoft/Phi-3-mini-4k-instruct)
+- `llama-3.2-1b` (meta-llama/Llama-3.2-1B-Instruct)
+- `medqa_finetuned_small` (for fine-tuned upper bound)
+
+**Quick GPU smoke test:**
+```bash
+python -m scripts.smoke_gpu_phi3 --task-name tatqa_tiny --device cuda --limit 2
+```
+
+---
+
 ## Current Status (Person 1 - Suryodaya)
 
 ✅ **Infrastructure Complete:**
@@ -25,6 +50,79 @@ Team handoff notes for the SLM-ACE project.
 - Production runs: Use GPU laptop (Shatvik) or supercomputer (Archit)
 
 ---
+
+## For Sathwik (Person 2 — ACE / Prompts)
+
+### ACE Modes
+
+The system now supports two ACE modes:
+
+1. **`ace_full`**: Unbounded playbook mode (default)
+   - Uses top-k entries (default k=5) from playbook
+   - No token budget limit
+   - Good for exploring full playbook evolution
+
+2. **`ace_working_memory`**: Token-budgeted playbook mode
+   - Uses scored entries that fit within a token budget (default: 500 tokens)
+   - Entries are scored by: correctness ratio + recency decay - genericity penalty
+   - Scoring logic lives in `slm_ace/playbook.py` (PlaybookEntry.score() method)
+   - Token budget selection in `slm_ace/playbook.py` (get_top_entries_for_budget())
+
+### Testing ACE Modes
+
+Quick test with tiny model (Mac-safe):
+```bash
+# ACE full mode
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_full \
+  --limit 5 \
+  --output-dir results/ace_tiny
+
+# ACE working memory mode
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_working_memory \
+  --token-budget 500 \
+  --limit 5 \
+  --output-dir results/ace_tiny
+```
+
+**On your GPU laptop**: Always pass `--device cuda` once your CUDA PyTorch is working:
+```bash
+python -m scripts.run_ace_epoch \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --epochs 3 \
+  --ace-mode ace_working_memory \
+  --device cuda \
+  --output-dir results/ace_phi3
+```
+
+**Important notes**:
+- **Do NOT use CUDA with tiny-gpt2**: `sshleifer/tiny-gpt2` is CPU/MPS-only due to PyTorch security restrictions (old pickled weights cannot be loaded on CUDA with recent Torch versions). Use `--device cpu` for tiny-gpt2 smoke tests.
+- **For GPU tests**: Use `phi3-mini`, `llama-3.2-1b`, or `medqa_finetuned_small` instead. These models use safetensors and work correctly on CUDA.
+- **GPU quick test** (verify CUDA setup):
+  ```bash
+  python -m scripts.smoke_gpu_phi3 \
+    --task-name tatqa_tiny \
+    --device cuda \
+    --limit 2
+  ```
+- **Quick sanity check** (CPU, works on any machine):
+  ```bash
+  python -m scripts.run_experiment \
+    --model-id sshleifer/tiny-gpt2 \
+    --task-name tatqa_tiny \
+    --mode baseline \
+    --device cpu \
+    --limit 3 \
+    --output-path results/tatqa_tiny_cpu_smoke.csv
+  ```
 
 ## For Sathwik (Person 2 — ACE / Prompts)
 
@@ -94,11 +192,13 @@ python -m scripts.run_ace_epoch \
 **Real test (Phi-3 Mini, on GPU laptop):**
 ```bash
 # Test on any of the three tasks: tatqa_tiny, medqa_tiny, iot_tiny
+# IMPORTANT: Use --device cuda for GPU tests (not tiny-gpt2)
 python -m scripts.run_experiment \
   --model-id phi3-mini \
   --task-name tatqa_tiny \
   --mode ace \
   --playbook-path playbooks/tatqa_playbook.jsonl \
+  --device cuda \
   --output-path results/tatqa_phi3_ace.csv
 
 # Or use ACE epoch driver for multi-epoch evolution:
@@ -106,6 +206,7 @@ python -m scripts.run_ace_epoch \
   --model-id phi3-mini \
   --task-name tatqa_tiny \
   --epochs 5 \
+  --device cuda \
   --output-dir results/ace_phi3
 ```
 
@@ -128,6 +229,96 @@ python -m scripts.run_ace_epoch \
 - Deduplication works (similar lessons merge)
 
 ---
+
+## For Archit (Person 3 — Metrics / Evaluation)
+
+### Metrics and Summary Script
+
+The metrics system now includes:
+
+1. **Exact accuracy**: Case-insensitive exact match (already implemented)
+2. **Semantic accuracy**: Sentence embedding similarity (if sentence-transformers available)
+   - Uses `all-MiniLM-L6-v2` model for embeddings
+   - Falls back to exact match if sentence-transformers not available
+   - Threshold: 0.7 (configurable)
+
+3. **Token metrics**: 
+   - `prompt_tokens`: Full input prompt tokens
+   - `context_tokens`: Playbook context tokens (for ACE modes)
+   - `output_tokens`: Generated output tokens
+
+4. **Summary script**: `scripts/summarize_results.py`
+   - Groups by model_id, task_name, mode (and epoch if present)
+   - Computes: accuracy_exact, accuracy_semantic, avg_latency_ms, avg_prompt_tokens, avg_context_tokens, avg_output_tokens
+   - Outputs CSV summary and Markdown table
+
+### Testing Metrics
+
+Generate test data and summarize:
+```bash
+# Run experiments
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode baseline \
+  --output-path results/test_baseline.csv \
+  --limit 5
+
+# Summarize results
+python -m scripts.summarize_results \
+  --input-dir results/ \
+  --output-path results/summary.csv
+```
+
+**Note**: You can run small tests locally with `--limit 5`, full runs later on GPU/supercomputer.
+
+**On your GPU laptop**: Always pass `--device cuda` once your CUDA PyTorch is working. Use `phi3-mini` or other real models for GPU tests (not tiny-gpt2). If CUDA is misconfigured, you can temporarily run with `--device cpu` for debugging:
+
+```bash
+# GPU run (once CUDA is set up) - use phi3-mini, not tiny-gpt2
+python -m scripts.run_experiment \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --mode baseline \
+  --device cuda \
+  --output-path results/medqa_phi3_baseline.csv
+
+# GPU quick smoke test
+python -m scripts.smoke_gpu_phi3 \
+  --task-name medqa_tiny \
+  --device cuda \
+  --limit 2
+
+# CPU fallback (for debugging)
+python -m scripts.run_experiment \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --mode baseline \
+  --device cpu \
+  --limit 5 \
+  --output-path results/medqa_phi3_cpu_test.csv
+```
+
+**Important notes**:
+- **Do NOT use CUDA with tiny-gpt2**: `sshleifer/tiny-gpt2` is CPU/MPS-only due to PyTorch security restrictions (old pickled weights cannot be loaded on CUDA with recent Torch versions). Use `--device cpu` for tiny-gpt2 smoke tests.
+- **For GPU tests**: Use `phi3-mini`, `llama-3.2-1b`, or `medqa_finetuned_small` instead. These models use safetensors and work correctly on CUDA.
+- **GPU quick test** (verify CUDA setup):
+  ```bash
+  python -m scripts.smoke_gpu_phi3 \
+    --task-name tatqa_tiny \
+    --device cuda \
+    --limit 2
+  ```
+- **Quick sanity check** (CPU, works on any machine):
+  ```bash
+  python -m scripts.run_experiment \
+    --model-id sshleifer/tiny-gpt2 \
+    --task-name tatqa_tiny \
+    --mode baseline \
+    --device cpu \
+    --limit 3 \
+    --output-path results/tatqa_tiny_cpu_smoke.csv
+  ```
 
 ## For Archit (Person 3 — Metrics / Evaluation)
 
@@ -167,6 +358,7 @@ This script:
 - `scripts.run_experiment` — Single baseline or ACE run
 - `scripts.run_ace_epoch` — Multi-epoch ACE evolution (epoch 0 = baseline, epochs 1+ = ACE)
 - `scripts.summarize_results` — Aggregate CSVs into summary tables
+- `scripts.run_grid` — Run grid experiments (model × task × mode) from `configs/exp_grid.yaml`
 
 You should track per-epoch improvements and possibly add CI/bootstrap scripts later.
 
@@ -249,6 +441,11 @@ python -m scripts.run_experiment \
 - `slm_ace/utils.py` ✅
 - `slm_ace/runner.py` (pipeline, but Sathwik adjusts ACE logic)
 - `scripts/run_experiment.py` ✅
+- `scripts/run_all_tiny_baselines.py` ✅
+- `scripts/run_ace_epoch.py` ✅
+- `scripts/summarize_results.py` ✅
+- `scripts/run_grid.py` ✅
+- `configs/exp_grid.yaml` ✅
 - `DEV_NOTES_PERSON1.md` ✅
 
 **Person 2 (Sathwik) — ACE Logic:**

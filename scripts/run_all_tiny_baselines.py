@@ -2,6 +2,11 @@
 """Driver script to run baseline evaluation on all tiny tasks with tiny-gpt2.
 
 This script is Mac-safe and intended for quick smoke tests.
+
+IMPORTANT: [tiny-gpt2] This script is intended for CPU/MPS smoke tests, not CUDA.
+Due to PyTorch security restrictions, sshleifer/tiny-gpt2 uses old pickled weights
+that cannot be loaded on CUDA with recent Torch versions. For GPU tests, use
+phi3-mini or other real models instead.
 """
 
 import argparse
@@ -49,6 +54,15 @@ def main():
     )
     
     args = parser.parse_args()
+    
+    # Warn if using tiny-gpt2 with CUDA
+    if "tiny-gpt2" in args.model_id.lower():
+        import warnings
+        warnings.warn(
+            "[tiny-gpt2] This script is intended for CPU/MPS smoke tests, not CUDA. "
+            "For GPU tests, use phi3-mini or other real models.",
+            UserWarning
+        )
     
     # Get device
     device = get_device()

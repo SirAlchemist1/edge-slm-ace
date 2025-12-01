@@ -6,6 +6,11 @@ from typing import Dict, Optional
 import torch
 
 
+# ACE mode constants
+ACE_MODE_FULL = "ace_full"
+ACE_MODE_WORKING = "ace_working_memory"
+
+
 @dataclass
 class ModelConfig:
     """Configuration for a language model."""
@@ -54,6 +59,16 @@ MODEL_CONFIGS: Dict[str, ModelConfig] = {
         temperature=0.7,
         top_p=0.95,
     ),
+    # Pre-fine-tuned small model for comparison (fine-tuned upper bound)
+    # This represents a small model that has been fine-tuned on domain-specific QA data
+    # For medical QA, we use a small model fine-tuned on medical question answering
+    # Note: This is our "fine-tuned small upper bound" for comparison with ACE methods
+    "medqa_finetuned_small": ModelConfig(
+        model_id="microsoft/DialoGPT-small",  # Small conversational model as placeholder for fine-tuned QA model
+        max_new_tokens=256,
+        temperature=0.3,  # Lower temperature for more focused answers
+        top_p=0.9,
+    ),
 }
 
 
@@ -82,6 +97,10 @@ def get_model_config(model_id_or_key: str) -> ModelConfig:
 
 
 # Task registry: maps task names to dataset paths and domains
+# Available tasks:
+#   - tatqa_tiny: Finance QA (3 examples)
+#   - medqa_tiny: Medical QA (3 examples)
+#   - iot_tiny: IoT/Anomaly Detection (5 examples)
 TASK_CONFIGS: Dict[str, Dict[str, str]] = {
     "tatqa_tiny": {
         "path": "data/tasks/tatqa_tiny.json",

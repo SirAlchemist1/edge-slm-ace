@@ -13,7 +13,7 @@ from slm_ace.ace_roles import (
     choose_lessons_for_playbook,
 )
 from slm_ace.config import ModelConfig
-from slm_ace.metrics import compute_accuracy, compute_average_latency,semantic_answer_score,compute_token_metrics
+from slm_ace.metrics import compute_accuracy, compute_average_latency,semantic_answer_score,compute_token_metrics,compute_bleu_score
 from slm_ace.model_manager import generate
 from slm_ace.playbook import Playbook
 
@@ -107,6 +107,7 @@ def run_dataset_baseline(
         # Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
         score = semantic_answer_score(answer, ground_truth)
+        bleu_score = compute_bleu_score(answer, ground_truth)
         prompt_tokens = len(tokenizer.encode(question, add_special_tokens=False))
         output_tokens = len(tokenizer.encode(answer, add_special_tokens=False))
         # Record result with consistent schema
@@ -124,6 +125,7 @@ def run_dataset_baseline(
             "context": context or "",
             "correct": 1 if correct else 0,
             "semantic_score":score,
+            "bleu_score":bleu_score,
             "prompt_tokens":prompt_tokens,
             "output_tokens":output_tokens
         }
@@ -318,9 +320,10 @@ def run_dataset_ace(
         if step % prune_every_n == 0:
             playbook.prune(max_entries_per_domain=32)
         score = semantic_answer_score(answer, ground_truth)
+        bleu_score = compute_bleu_score(answer, ground_truth)
         prompt_tokens = len(tokenizer.encode(question, add_special_tokens=False))
         output_tokens = len(tokenizer.encode(answer, add_special_tokens=False))
-        
+
         # Record result with consistent schema
         result = {
             "model_id": model_id,
@@ -338,6 +341,7 @@ def run_dataset_ace(
             "reflection_latency_ms": reflection_latency_ms,
             "reflected": should_reflect,
             "semantic_score": score,
+            "bleu_score": bleu_score,
             "prompt_tokens": prompt_tokens,
             "output_tokens": output_tokens
         }

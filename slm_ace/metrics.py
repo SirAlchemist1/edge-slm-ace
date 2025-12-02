@@ -206,6 +206,24 @@ def semantic_answer_score(pred: str, label: str) -> float:
 
 from typing import List, Dict
 import numpy as np
+import sacrebleu
+
+def compute_bleu_score(prediction: str, reference: str) -> float:
+    """
+    Compute BLEU score between a prediction and reference using sacrebleu.
+
+    Args:
+        prediction: The predicted/generated text.
+        reference: The ground truth/reference text.
+
+    Returns:
+        BLEU score as a float between 0 and 100.
+    """
+    # sacrebleu expects references as a list of lists
+    # Each reference needs to be a list (for multiple references per prediction)
+    # We only have one reference per prediction
+    bleu = sacrebleu.sentence_bleu(prediction, [reference])
+    return bleu.score
 
 def compute_token_metrics(tokenizer, prompts: List[str], outputs: List[str]) -> Dict[str, float]:
     """

@@ -13,6 +13,7 @@ from slm_ace.ace_roles import (
     choose_lessons_for_playbook,
     build_self_refine_critique_prompt,
     build_self_refine_rewrite_prompt,
+    parse_generator_output,
 )
 from slm_ace.config import ModelConfig
 from slm_ace.metrics import compute_accuracy, compute_average_latency
@@ -446,7 +447,7 @@ def run_dataset_ace(
         
         # Step 2: Generate answer
         start_time = time.time()
-        answer = generate(
+        raw_answer = generate(
             model,
             tokenizer,
             generator_prompt,
@@ -455,6 +456,12 @@ def run_dataset_ace(
             top_p=config.top_p,
         )
         latency_ms = (time.time() - start_time) * 1000
+        
+        # Extract reasoning and answer from generator output
+        answer, reasoning = parse_generator_output(raw_answer)
+        # If parsing failed, use raw answer
+        if not answer:
+            answer = raw_answer.strip()
         
         # Step 3: Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
@@ -481,7 +488,7 @@ def run_dataset_ace(
                 context=context,
                 model_answer=answer,
                 ground_truth=ground_truth,
-                reasoning=None,  # TODO: Extract reasoning if model provides it
+                reasoning=reasoning,  # Use extracted reasoning from generator output
             )
             
             # Generate reflection

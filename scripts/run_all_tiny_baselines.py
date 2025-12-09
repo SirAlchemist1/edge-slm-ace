@@ -15,10 +15,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from slm_ace.config import TASK_CONFIGS, get_model_config, get_task_config
-from slm_ace.model_manager import load_model_and_tokenizer
-from slm_ace.runner import run_dataset_baseline
-from slm_ace.utils import get_device
+from edge_slm_ace.utils.config import TASK_CONFIGS, get_model_config, get_task_config
+from edge_slm_ace.models.model_manager import load_model_and_tokenizer
+from edge_slm_ace.core.runner import run_dataset_baseline
+from edge_slm_ace.utils.device_utils import get_device
 
 
 def load_dataset(path: Path) -> list[dict]:

@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from slm_ace.config import get_model_config, get_task_config
-from slm_ace.model_manager import load_model_and_tokenizer
-from slm_ace.playbook import Playbook
-from slm_ace.runner import run_dataset_baseline, run_dataset_ace
-from slm_ace.utils import get_device
+from edge_slm_ace.utils.config import get_model_config, get_task_config
+from edge_slm_ace.models.model_manager import load_model_and_tokenizer
+from edge_slm_ace.memory.playbook import Playbook
+from edge_slm_ace.core.runner import run_dataset_baseline, run_dataset_ace
+from edge_slm_ace.utils.device_utils import get_device
 
 
 def load_dataset(path: Path) -> list[dict]:
@@ -127,7 +127,7 @@ def main():
     # Resolve device (with override support)
     # Note: load_model_and_tokenizer will handle tiny-gpt2 CPU override internally
     if args.device:
-        from slm_ace.utils import resolve_device_override
+        from edge_slm_ace.utils.device_utils import resolve_device_override
         device, _ = resolve_device_override(args.device, model_id=config.model_id)
     else:
         device = get_device()

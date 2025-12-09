@@ -38,7 +38,7 @@ def load_model_and_tokenizer(
     # resolve_device_override will handle tiny-gpt2 forcing automatically
     is_tiny_gpt2 = "tiny-gpt2" in model_id.lower()
     
-    from slm_ace.utils import resolve_device_override, get_device
+    from edge_slm_ace.utils.device_utils import resolve_device_override, get_device
     if device_override is not None:
         device, forced = resolve_device_override(device_override, model_id=model_id)
     elif device is not None:

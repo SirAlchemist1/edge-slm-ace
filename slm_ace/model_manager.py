@@ -2,6 +2,12 @@
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.generation.utils import DynamicCache
+if not hasattr(DynamicCache, "seen_tokens"):
+    @property
+    def seen_tokens(self):
+        return 0
+    DynamicCache.seen_tokens = seen_tokens
 from typing import Optional
 
 

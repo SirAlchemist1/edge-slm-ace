@@ -113,24 +113,30 @@ def run_dataset_baseline(
         # Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
         
-        # Record result with consistent schema
+        # Record result with consistent schema (canonical format for plotting)
         result = {
+            # Canonical columns (for plotting pipeline)
+            "qid": example_id,  # Canonical question ID
+            "task": task_name,  # Canonical task name
+            "model": model_id,  # Canonical model ID (will be normalized by plotting script)
+            "mode": mode,  # Already canonical
+            "is_correct": 1 if correct else 0,  # Canonical correctness
+            "context_tokens": context_tokens,  # For token efficiency plots
+            "latency_ms": latency_ms,  # For latency plots
+            # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
             "domain": domain,
-            "mode": mode,
             "sample_id": example_id,
             "gold": ground_truth,
             "pred": answer,
-            "latency_ms": latency_ms,
+            "correct": 1 if correct else 0,
             # Token counts
             "prompt_tokens": prompt_tokens,
-            "context_tokens": context_tokens,
             "output_tokens": output_tokens,
             # Additional fields for debugging
             "question": question,
             "context": context or "",
-            "correct": 1 if correct else 0,
         }
         results.append(result)
         
@@ -280,23 +286,29 @@ def run_dataset_self_refine(
         # Check correctness
         correct = final_answer.strip().lower() == ground_truth.strip().lower()
         
-        # Record result
+        # Record result with canonical format
         result = {
+            # Canonical columns (for plotting pipeline)
+            "qid": example_id,
+            "task": task_name,
+            "model": model_id,
+            "mode": mode,
+            "is_correct": 1 if correct else 0,
+            "context_tokens": context_tokens,
+            "latency_ms": total_latency_ms,
+            # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
             "domain": domain,
-            "mode": mode,
             "sample_id": example_id,
             "gold": ground_truth,
             "pred": final_answer,
-            "latency_ms": total_latency_ms,
+            "correct": 1 if correct else 0,
             # Token counts
             "prompt_tokens": prompt_tokens,
-            "context_tokens": context_tokens,
             "output_tokens": output_tokens,
             "question": question,
             "context": context or "",
-            "correct": 1 if correct else 0,
         }
         results.append(result)
         
@@ -534,26 +546,32 @@ def run_dataset_ace(
         if step % prune_every_n == 0:
             playbook.prune(max_entries_per_domain=32)
         
-        # Record result with consistent schema
+        # Record result with consistent schema (canonical format for plotting)
         # Use ace_mode for mode column if in ACE mode
         result_mode = ace_mode if mode == "ace" else mode
         result = {
+            # Canonical columns (for plotting pipeline)
+            "qid": example_id,
+            "task": task_name,
+            "model": model_id,
+            "mode": result_mode,
+            "is_correct": 1 if correct else 0,
+            "context_tokens": context_tokens,  # Playbook context tokens
+            "latency_ms": latency_ms,
+            # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
             "domain": domain,
-            "mode": result_mode,
             "sample_id": example_id,
             "gold": ground_truth,
             "pred": answer,
-            "latency_ms": latency_ms,
+            "correct": 1 if correct else 0,
             # Token counts
             "prompt_tokens": prompt_tokens,
-            "context_tokens": context_tokens,  # Playbook context tokens
             "output_tokens": output_tokens,
             # Additional fields for debugging
             "question": question,
             "context": context or "",
-            "correct": 1 if correct else 0,
             "reflection_latency_ms": reflection_latency_ms,
             "reflected": should_reflect,
         }

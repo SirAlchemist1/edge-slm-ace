@@ -121,6 +121,11 @@ def main():
         choices=["cpu", "cuda", "mps"],
         help="Optional device override. If not set, auto-detects (cuda -> mps -> cpu).",
     )
+    parser.add_argument(
+        "--auto-plots",
+        action="store_true",
+        help="Automatically regenerate plots after evaluation completes (requires tinyace_plots.py)",
+    )
     
     args = parser.parse_args()
     
@@ -311,6 +316,28 @@ def main():
         for key, value in summary.items():
             print(f"{key}: {value}")
         print("=" * 50)
+        
+        # Optionally regenerate plots
+        if args.auto_plots:
+            try:
+                import sys
+                from pathlib import Path
+                # Import tinyace_plots module
+                repo_root = Path(__file__).parent.parent
+                sys.path.insert(0, str(repo_root))
+                from tinyace_plots import main as regenerate_plots
+                
+                print("\n" + "=" * 50)
+                print("Regenerating plots...")
+                print("=" * 50)
+                regenerate_plots(results_dir="results", output_dir="tinyace_plots")
+                print("Plots regenerated successfully.")
+            except ImportError as e:
+                print(f"\nWarning: Could not import tinyace_plots: {e}")
+                print("Skipping plot regeneration. Run manually with: python tinyace_plots.py")
+            except Exception as e:
+                print(f"\nWarning: Plot regeneration failed: {e}")
+                print("You can regenerate plots manually with: python tinyace_plots.py")
         
         return 0
         

@@ -17,7 +17,7 @@ from slm_ace.ace_roles import (
 )
 from slm_ace.config import ModelConfig
 from slm_ace.metrics import compute_accuracy, compute_average_latency
-from slm_ace.model_manager import generate, count_tokens
+from slm_ace.model_manager import generate
 from slm_ace.playbook import Playbook
 
 
@@ -80,6 +80,8 @@ def run_dataset_baseline(
     predictions = []
     labels = []
     latencies = []
+    prompt_tokens_list = []
+    prompt_output_tokens_list = []
     
     for example in dataset:
         example_id = example.get("id", "unknown")
@@ -113,7 +115,7 @@ def run_dataset_baseline(
         # Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
         
-        # Record result with consistent schema (canonical format for plotting)
+        # Record result with consistent schema
         result = {
             # Canonical columns (for plotting pipeline)
             "qid": example_id,  # Canonical question ID
@@ -137,12 +139,15 @@ def run_dataset_baseline(
             # Additional fields for debugging
             "question": question,
             "context": context or "",
+            "correct": 1 if correct else 0,
         }
         results.append(result)
         
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+        prompt_tokens_list.append(prompt_tokens)
+        prompt_output_tokens_list.append(output_tokens)
     
     # Compute summary
     accuracy = compute_accuracy(predictions, labels)
@@ -152,6 +157,8 @@ def run_dataset_baseline(
         "accuracy": accuracy,
         "avg_latency_ms": avg_latency,
         "num_examples": len(dataset),
+        "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list),
+        "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list)
     }
     
     return results, summary
@@ -423,6 +430,8 @@ def run_dataset_ace(
     predictions = []
     labels = []
     latencies = []
+    prompt_tokens_list=[]
+    prompt_output_tokens_list = []
     
     for step, example in enumerate(dataset, start=1):
         example_id = example.get("id", "unknown")
@@ -546,9 +555,7 @@ def run_dataset_ace(
         if step % prune_every_n == 0:
             playbook.prune(max_entries_per_domain=32)
         
-        # Record result with consistent schema (canonical format for plotting)
-        # Use ace_mode for mode column if in ACE mode
-        result_mode = ace_mode if mode == "ace" else mode
+        # Record result with consistent schema
         result = {
             # Canonical columns (for plotting pipeline)
             "qid": example_id,
@@ -574,12 +581,18 @@ def run_dataset_ace(
             "context": context or "",
             "reflection_latency_ms": reflection_latency_ms,
             "reflected": should_reflect,
+            "semantic_score": score,
+            "bleu_score": bleu_score,
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens
         }
         results.append(result)
         
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+        prompt_tokens_list.append(prompt_tokens)
+        prompt_output_tokens_list.append(output_tokens)
     
     # Save playbook after run
     playbook.save(playbook_path)
@@ -593,6 +606,8 @@ def run_dataset_ace(
         "avg_latency_ms": avg_latency,
         "num_examples": len(dataset),
         "playbook_size": len(playbook.entries),
+        "mean_prompt_token":sum(prompt_tokens_list) / len(prompt_tokens_list),
+        "mean_output_token":sum(prompt_output_tokens_list) / len(prompt_output_tokens_list)
     }
     
     return results, summary

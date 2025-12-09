@@ -63,10 +63,35 @@ def main():
         help="Limit number of examples per epoch (optional)",
     )
     parser.add_argument(
+        "--ace-mode",
+        type=str,
+        choices=["ace_full", "ace_working_memory"],
+        default="ace_full",
+        help="ACE mode: 'ace_full' (unbounded playbook) or 'ace_working_memory' (token-budgeted) (default: ace_full)",
+    )
+    parser.add_argument(
+        "--token-budget",
+        type=int,
+        default=500,
+        help="Token budget for working memory mode (default: 500)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="results/ace",
         help="Output directory for CSVs (default: results/ace)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        choices=["cpu", "cuda", "mps"],
+        help="Optional device override. If not set, auto-detects (cuda -> mps -> cpu).",
+    )
+    parser.add_argument(
+        "--auto-plots",
+        action="store_true",
+        help="Automatically regenerate plots after all epochs complete (requires tinyace_plots.py)",
     )
     
     args = parser.parse_args()
@@ -92,21 +117,34 @@ def main():
         print(f"Error: Dataset not found: {dataset_path}")
         return 1
     
-    # Get device
-    device = get_device()
-    print(f"Using device: {device}")
-    
-    # Load model config
+    # Load model config first (needed for device resolution)
     try:
         config = get_model_config(args.model_id)
     except Exception as e:
         print(f"Error: Failed to load model config: {e}")
         return 1
     
+    # Resolve device (with override support)
+    # Note: load_model_and_tokenizer will handle tiny-gpt2 CPU override internally
+    if args.device:
+        from slm_ace.utils import resolve_device_override
+        device, _ = resolve_device_override(args.device, model_id=config.model_id)
+    else:
+        device = get_device()
+    
+    # Print summary
+    mode_str = f"ACE ({args.ace_mode})" if args.epochs > 1 else "Baseline"
+    print(f"Model: {args.model_id} | Task: {args.task_name} | Mode: {mode_str} | Device override: {args.device or 'auto'}")
+    print(f"Using device: {device}\n")
+    
     # Load model and tokenizer (reused across epochs)
     print(f"Loading model: {config.model_id}")
     try:
-        model, tokenizer = load_model_and_tokenizer(config.model_id, device=device)
+        model, tokenizer = load_model_and_tokenizer(
+            config.model_id,
+            device=device,
+            device_override=args.device,
+        )
         print("Model loaded successfully.\n")
     except Exception as e:
         print(f"Error: Failed to load model: {e}")
@@ -179,6 +217,8 @@ def main():
                     model_id=config.model_id,
                     task_name=args.task_name,
                     mode="ace",
+                    ace_mode=args.ace_mode,
+                    token_budget=args.token_budget,
                 )
                 
                 output_path = output_dir / f"{args.task_name}_{sanitized_model_id}_epoch{epoch}.csv"
@@ -219,9 +259,62 @@ def main():
         print(f"{s['epoch']:<8} {s['mode']:<12} {s['accuracy']:<12.3f} {s['avg_latency_ms']:<18.2f} {s['num_examples']:<10}")
     print("=" * 60)
     
+    # Optionally regenerate plots
+    if args.auto_plots:
+        try:
+            import sys
+            from pathlib import Path
+            # Import tinyace_plots module
+            repo_root = Path(__file__).parent.parent
+            sys.path.insert(0, str(repo_root))
+            from tinyace_plots import main as regenerate_plots
+            
+            print("\n" + "=" * 60)
+            print("Regenerating plots...")
+            print("=" * 60)
+            regenerate_plots(results_dir="results", output_dir="tinyace_plots")
+            print("Plots regenerated successfully.")
+        except ImportError as e:
+            print(f"\nWarning: Could not import tinyace_plots: {e}")
+            print("Skipping plot regeneration. Run manually with: python tinyace_plots.py")
+        except Exception as e:
+            print(f"\nWarning: Plot regeneration failed: {e}")
+            print("You can regenerate plots manually with: python tinyace_plots.py")
+    
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# Example commands:
+#
+# Baseline + ACE full mode (tiny model, Mac-safe):
+# python -m scripts.run_ace_epoch \
+#   --model-id sshleifer/tiny-gpt2 \
+#   --task-name tatqa_tiny \
+#   --epochs 2 \
+#   --ace-mode ace_full \
+#   --limit 5 \
+#   --output-dir results/ace_tiny
+#
+# Baseline + ACE working memory mode:
+# python -m scripts.run_ace_epoch \
+#   --model-id sshleifer/tiny-gpt2 \
+#   --task-name tatqa_tiny \
+#   --epochs 2 \
+#   --ace-mode ace_working_memory \
+#   --token-budget 500 \
+#   --limit 5 \
+#   --output-dir results/ace_tiny
+#
+# Full run (GPU/supercomputer):
+# python -m scripts.run_ace_epoch \
+#   --model-id phi3-mini \
+#   --task-name medqa_tiny \
+#   --epochs 5 \
+#   --ace-mode ace_working_memory \
+#   --device cuda \
+#   --output-dir results/ace_phi3
 

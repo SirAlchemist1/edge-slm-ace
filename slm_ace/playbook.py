@@ -17,26 +17,80 @@ class PlaybookEntry:
     harmful_count: int = 0
     created_at: float = 0.0
     last_seen_step: int = 0
+    # Additional fields for working memory scoring
+    success_count: int = 0  # Number of times this entry appeared in correct examples
+    failure_count: int = 0  # Number of times this entry appeared in incorrect examples
+    last_used_at: int = 0  # Step counter when this entry was last used
+    is_generic: bool = False  # Whether this entry is generic (determined by heuristics)
     
     def __post_init__(self):
         """Set created_at timestamp if not provided."""
         if self.created_at == 0.0:
             self.created_at = datetime.now().timestamp()
+        # Auto-detect if entry is generic based on heuristics
+        if not hasattr(self, 'is_generic') or self.is_generic is False:
+            self.is_generic = self._detect_generic()
     
-    def score(self, recency_weight: float = 0.1) -> float:
+    def _detect_generic(self) -> bool:
         """
-        Compute a score for ranking entries.
+        Detect if this entry is generic using simple heuristics.
+        
+        Returns:
+            True if entry appears to be generic advice.
+        """
+        text_lower = self.text.lower()
+        generic_phrases = [
+            "think carefully",
+            "consider all perspectives",
+            "be thorough",
+            "pay attention",
+            "make sure",
+            "remember to",
+        ]
+        
+        # Check if text is very short (likely generic)
+        if len(self.text.split()) < 5:
+            return True
+        
+        # Check if text contains generic phrases
+        if any(phrase in text_lower for phrase in generic_phrases):
+            # Only mark as generic if it's mostly generic (few specific details)
+            if len(self.text.split()) < 10:
+                return True
+        
+        return False
+    
+    def score(self, recency_weight: float = 0.1, current_step: int = 0) -> float:
+        """
+        Compute a score for ranking entries (enhanced for working memory).
         
         Args:
             recency_weight: Weight for recency bonus (higher = more recent entries favored).
+            current_step: Current step counter for recency calculation.
             
         Returns:
-            Score combining helpfulness and recency.
+            Score combining correctness ratio, recency, and genericity penalty.
         """
-        helpfulness = self.helpful_count - self.harmful_count
-        # Simple recency bonus: newer entries get a small boost
-        recency_bonus = recency_weight * self.last_seen_step
-        return helpfulness + recency_bonus
+        # Correctness ratio: success / (success + failure + 1) to avoid division by zero
+        total_uses = self.success_count + self.failure_count
+        if total_uses > 0:
+            correctness_ratio = self.success_count / (total_uses + 1)
+        else:
+            correctness_ratio = 0.5  # Neutral for unused entries
+        
+        # Recency via exponential decay: exp(-alpha * age_in_steps)
+        # Age is measured in steps since last use
+        age_in_steps = max(0, current_step - self.last_used_at) if current_step > 0 else 0
+        alpha = 0.1  # Decay rate (smaller = slower decay)
+        recency_decay = 1.0 / (1.0 + alpha * age_in_steps)  # Simplified exponential decay
+        
+        # Genericity penalty
+        genericity_penalty = -0.5 if self.is_generic else 0.0
+        
+        # Combine: correctness ratio (0-1) + recency decay (0-1) + genericity penalty
+        score = correctness_ratio + recency_weight * recency_decay + genericity_penalty
+        
+        return score
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -95,21 +149,85 @@ class Playbook:
             for entry in self.entries:
                 f.write(json.dumps(entry.to_dict()) + "\n")
     
-    def get_top_k(self, domain: str, k: int = 5) -> List[PlaybookEntry]:
+    def get_top_k(self, domain: str, k: int = 5, current_step: int = 0) -> List[PlaybookEntry]:
         """
         Get top-k entries for a domain, ranked by score.
         
         Args:
             domain: Domain name (e.g., "finance", "medical").
             k: Number of entries to return.
+            current_step: Current step counter for recency calculation.
             
         Returns:
             List of top-k PlaybookEntry objects.
         """
         domain_entries = [e for e in self.entries if e.domain == domain]
         # Sort by score (descending)
-        domain_entries.sort(key=lambda e: e.score(), reverse=True)
+        domain_entries.sort(key=lambda e: e.score(current_step=current_step), reverse=True)
         return domain_entries[:k]
+    
+    def score_entry(self, entry: PlaybookEntry, current_step: int = 0) -> float:
+        """
+        Compute a score for a playbook entry (for working memory mode).
+        
+        This method combines:
+        - Correctness ratio (success / (success + failure + 1))
+        - Recency via exponential decay
+        - Genericity penalty
+        
+        Args:
+            entry: The playbook entry to score.
+            current_step: Current step counter for recency calculation.
+            
+        Returns:
+            Score as a float (higher is better).
+        """
+        return entry.score(current_step=current_step)
+    
+    def get_top_entries_for_budget(
+        self,
+        domain: str,
+        token_budget: int,
+        current_step: int = 0,
+        tokens_per_word: float = 1.3,
+    ) -> List[PlaybookEntry]:
+        """
+        Get top entries for a domain that fit within a token budget.
+        
+        Entries are sorted by score (descending) and greedily included
+        until the estimated total token count <= token_budget.
+        
+        Args:
+            domain: Domain name (e.g., "finance", "medical").
+            token_budget: Maximum number of tokens allowed.
+            current_step: Current step counter for recency calculation.
+            tokens_per_word: Estimated tokens per word (default: 1.3).
+            
+        Returns:
+            List of PlaybookEntry objects that fit within the budget.
+        """
+        domain_entries = [e for e in self.entries if e.domain == domain]
+        
+        # Sort by score (descending)
+        domain_entries.sort(key=lambda e: e.score(current_step=current_step), reverse=True)
+        
+        # Greedily include entries until budget is exceeded
+        selected_entries = []
+        total_tokens = 0
+        
+        for entry in domain_entries:
+            # Estimate token count: approximate via word count
+            word_count = len(entry.text.split())
+            estimated_tokens = int(word_count * tokens_per_word)
+            
+            if total_tokens + estimated_tokens <= token_budget:
+                selected_entries.append(entry)
+                total_tokens += estimated_tokens
+            else:
+                # Can't fit this entry, stop
+                break
+        
+        return selected_entries
     
     def add_entry(
         self,
@@ -152,6 +270,10 @@ class Playbook:
             helpful_count=0,
             harmful_count=0,
             last_seen_step=step,
+            success_count=0,
+            failure_count=0,
+            last_used_at=step,
+            is_generic=False,  # Will be auto-detected in __post_init__
         )
         self.entries.append(entry)
         return entry
@@ -159,6 +281,8 @@ class Playbook:
     def record_feedback(self, entry_id: str, helpful: bool) -> None:
         """
         Record feedback for an entry (helpful or harmful).
+        
+        Also updates success_count and failure_count for working memory scoring.
         
         Args:
             entry_id: ID of the entry.
@@ -168,12 +292,28 @@ class Playbook:
             if entry.id == entry_id:
                 if helpful:
                     entry.helpful_count += 1
+                    entry.success_count += 1
                 else:
                     entry.harmful_count += 1
+                    entry.failure_count += 1
                 return
         
         # Entry not found - could raise an error, but silently ignore for robustness
         pass
+    
+    def mark_entry_used(self, entry_id: str, step: int) -> None:
+        """
+        Mark an entry as used at a specific step (for recency tracking).
+        
+        Args:
+            entry_id: ID of the entry.
+            step: Current step counter.
+        """
+        for entry in self.entries:
+            if entry.id == entry_id:
+                entry.last_used_at = step
+                entry.last_seen_step = step
+                return
     
     def prune(self, max_entries_per_domain: int = 32) -> None:
         """

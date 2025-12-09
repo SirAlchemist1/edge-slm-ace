@@ -10,7 +10,7 @@ import pandas as pd
 from slm_ace.config import get_model_config, get_task_config, ModelConfig
 from slm_ace.model_manager import load_model_and_tokenizer
 from slm_ace.playbook import Playbook
-from slm_ace.runner import run_dataset_baseline, run_dataset_ace
+from slm_ace.runner import run_dataset_baseline, run_dataset_ace, run_dataset_self_refine
 from slm_ace.utils import get_device
 
 
@@ -63,20 +63,20 @@ def main():
         "--task-name",
         type=str,
         default=None,
-        help="Task name from registry (e.g., 'tatqa_tiny', 'medqa_tiny'). If provided, overrides --dataset-path and --domain",
+        help="Task name from registry (e.g., 'tatqa_tiny', 'medqa_tiny', 'iot_tiny'). If provided, overrides --dataset-path and --domain",
     )
     parser.add_argument(
         "--domain",
         type=str,
         default=None,
-        help="Domain name (e.g., 'finance', 'medical'). Required if --task-name not provided",
+        help="Domain name (e.g., 'finance', 'medical', 'iot'). Required if --task-name not provided",
     )
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["baseline", "ace"],
+        choices=["baseline", "ace", "self_refine"],
         required=True,
-        help="Run mode: 'baseline' or 'ace'",
+        help="Run mode: 'baseline', 'ace', or 'self_refine'",
     )
     parser.add_argument(
         "--playbook-path",
@@ -113,6 +113,18 @@ def main():
         type=int,
         default=None,
         help="Limit number of examples to process (useful for quick testing)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        choices=["cpu", "cuda", "mps"],
+        help="Optional device override. If not set, auto-detects (cuda -> mps -> cpu).",
+    )
+    parser.add_argument(
+        "--auto-plots",
+        action="store_true",
+        help="Automatically regenerate plots after evaluation completes (requires tinyace_plots.py)",
     )
     
     args = parser.parse_args()
@@ -161,14 +173,26 @@ def main():
         if args.top_p is not None:
             config.top_p = args.top_p
         
-        # Get device
-        device = get_device()
-        print(f"Using device: {device}")
+        # Resolve device (with override support)
+        # Note: load_model_and_tokenizer will handle tiny-gpt2 CPU override internally
+        if args.device:
+            from slm_ace.utils import resolve_device_override
+            device, forced = resolve_device_override(args.device, model_id=config.model_id)
+            # Pass the resolved device string, not the original override
+            device_override_str = str(device.type) if not forced else "cpu"
+        else:
+            device = get_device()
+            device_override_str = None
+        print(f"Using device: {device} (override: {args.device or 'auto'})")
         
         # Load model and tokenizer
         print(f"Loading model: {config.model_id}")
         try:
-            model, tokenizer = load_model_and_tokenizer(config.model_id, device=device)
+            model, tokenizer = load_model_and_tokenizer(
+                config.model_id,
+                device=device,
+                device_override=device_override_str,
+            )
             print("Model loaded successfully.")
         except Exception as e:
             print(f"Error: Failed to load model '{config.model_id}': {e}")
@@ -217,6 +241,24 @@ def main():
                 )
             except Exception as e:
                 print(f"Error during baseline evaluation: {e}")
+                import traceback
+                traceback.print_exc()
+                return 1
+        elif args.mode == "self_refine":
+            print("Running self-refinement evaluation...")
+            try:
+                results, summary = run_dataset_self_refine(
+                    model=model,
+                    tokenizer=tokenizer,
+                    dataset=dataset,
+                    domain=domain,
+                    config=config,
+                    model_id=config.model_id,
+                    task_name=task_name or dataset_path.stem,
+                    mode=args.mode,
+                )
+            except Exception as e:
+                print(f"Error during self-refinement evaluation: {e}")
                 import traceback
                 traceback.print_exc()
                 return 1
@@ -274,6 +316,28 @@ def main():
         for key, value in summary.items():
             print(f"{key}: {value}")
         print("=" * 50)
+        
+        # Optionally regenerate plots
+        if args.auto_plots:
+            try:
+                import sys
+                from pathlib import Path
+                # Import tinyace_plots module
+                repo_root = Path(__file__).parent.parent
+                sys.path.insert(0, str(repo_root))
+                from tinyace_plots import main as regenerate_plots
+                
+                print("\n" + "=" * 50)
+                print("Regenerating plots...")
+                print("=" * 50)
+                regenerate_plots(results_dir="results", output_dir="tinyace_plots")
+                print("Plots regenerated successfully.")
+            except ImportError as e:
+                print(f"\nWarning: Could not import tinyace_plots: {e}")
+                print("Skipping plot regeneration. Run manually with: python tinyace_plots.py")
+            except Exception as e:
+                print(f"\nWarning: Plot regeneration failed: {e}")
+                print("You can regenerate plots manually with: python tinyace_plots.py")
         
         return 0
         

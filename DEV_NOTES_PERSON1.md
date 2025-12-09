@@ -2,6 +2,36 @@
 
 Development notes for Person 1 (Infrastructure & Core Framework)
 
+## ⚠️ IMPORTANT: tiny-gpt2 and CUDA
+
+**`sshleifer/tiny-gpt2` cannot run on CUDA with Torch >= 2.6.**
+
+This is **not our bug** – it is a security patch (CVE-2025-32434) that blocks loading old pickled weights on CUDA.
+
+**The codebase automatically forces tiny-gpt2 to CPU, even if `--device cuda` is passed.**
+
+You will see this warning:
+```
+[tiny-gpt2] CUDA requested → forcing CPU (this model cannot run on CUDA on Torch >= 2.6)
+```
+
+**For GPU tests, use real models:**
+- `phi3-mini` (microsoft/Phi-3-mini-4k-instruct)
+- `llama-3.2-1b` (meta-llama/Llama-3.2-1B-Instruct)
+- `medqa_finetuned_small` (for fine-tuned upper bound)
+
+**Quick GPU smoke test:**
+```bash
+python -m scripts.smoke_gpu_phi3 --task-name tatqa_tiny --device cuda --limit 2
+```
+
+**Quick CPU smoke test (tiny-gpt2):**
+```bash
+python -m scripts.smoke_test
+```
+
+---
+
 ## Quick Start (Mac M3 Pro)
 
 ### 1. Set up virtual environment
@@ -26,6 +56,9 @@ pip install -r requirements.txt
 
 Run a baseline evaluation to verify everything works (using task registry):
 
+**Important**: `sshleifer/tiny-gpt2` is **CPU/MPS-only** (never CUDA) due to PyTorch security restrictions. The model uses old pickled weights that cannot be loaded on CUDA with recent Torch versions. This is intentional - tiny-gpt2 is only for quick CPU/Mac smoke tests.
+
+**Mac M3 Pro** (auto-detects MPS):
 ```bash
 python -m scripts.run_experiment \
   --model-id sshleifer/tiny-gpt2 \
@@ -33,6 +66,56 @@ python -m scripts.run_experiment \
   --mode baseline \
   --output-path results/tatqa_tiny_baseline.csv
 ```
+
+**Linux/Windows** (use `--device cpu` explicitly):
+```bash
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode baseline \
+  --device cpu \
+  --output-path results/tatqa_tiny_baseline.csv
+```
+
+**Note**: Even if you pass `--device cuda`, tiny-gpt2 will automatically override to CPU with a warning message.
+
+### GPU Quick Test
+
+For GPU tests, use `phi3-mini` or other real models (not tiny-gpt2):
+
+**Baseline on GPU:**
+```bash
+python -m scripts.run_experiment \
+  --model-id phi3-mini \
+  --task-name tatqa_tiny \
+  --mode baseline \
+  --device cuda \
+  --limit 3 \
+  --output-path results/tatqa_phi3_cuda_baseline.csv
+```
+
+**ACE (working-memory) on GPU:**
+```bash
+python -m scripts.run_ace_epoch \
+  --model-id phi3-mini \
+  --task-name tatqa_tiny \
+  --mode ace \
+  --ace-mode working_memory \
+  --device cuda \
+  --epochs 2 \
+  --limit 3 \
+  --output-dir results/ace_phi3_cuda/
+```
+
+**Quick GPU smoke test:**
+```bash
+python -m scripts.smoke_gpu_phi3 \
+  --task-name tatqa_tiny \
+  --device cuda \
+  --limit 2
+```
+
+This will verify your CUDA setup is working correctly with Phi-3 Mini.
 
 Or with explicit dataset path (legacy mode):
 
@@ -408,6 +491,50 @@ python -m scripts.summarize_results \
 
 **Note**: All three scripts are Mac-safe (no GPU-specific imports). Heavy models should be run by Archit on GPU/supercomputer.
 
+### 4. Run Grid Experiments
+
+Run experiments for all combinations of model × task × mode from a config file:
+
+```bash
+# Dry-run to see what would be executed
+python -m scripts.run_grid --dry-run
+
+# Run with tiny-gpt2 only (Mac-safe, for testing)
+python -m scripts.run_grid --limit 3 --model-id sshleifer/tiny-gpt2
+
+# Run full grid (use on GPU laptop/supercomputer)
+python -m scripts.run_grid
+```
+
+**What it does:**
+- Reads `configs/exp_grid.yaml` for model/task/mode combinations
+- For `baseline` mode: Calls `run_experiment`
+- For `ace` mode: Calls `run_ace_epoch` (epoch 0 = baseline, epoch 1 = ACE)
+- Saves results to `results/grid/`
+
+**Options:**
+- `--config`: Path to grid config YAML (default: `configs/exp_grid.yaml`)
+- `--dry-run`: Print commands without executing
+- `--limit`: Limit examples per experiment (optional)
+- `--model-id`: Filter to only run this model (optional)
+- `--output-dir`: Output directory (default: `results/grid`)
+
+**Config file format** (`configs/exp_grid.yaml`):
+```yaml
+models:
+  - phi3-mini
+  - llama-3.2-1b
+tasks:
+  - tatqa_tiny
+  - medqa_tiny
+  - iot_tiny
+modes:
+  - baseline
+  - ace
+```
+
+**Note**: Grid runner is Mac-safe. For production runs with real models, use GPU laptop/supercomputer.
+
 ### ACE mode (single run)
 ```bash
 python -m scripts.run_experiment \
@@ -450,6 +577,158 @@ All result CSVs follow a consistent schema:
 **ACE-specific columns** (only in ACE mode):
 - `reflection_latency_ms`: Time spent on reflection
 - `reflected`: Whether reflection occurred for this example
+
+## Final Model + Task Choices
+
+### Main Task for Real Experiments
+- **Primary task**: `medqa_tiny` (Medical QA) - chosen as the main task for real experiments
+- **Rationale**: Medical QA provides a good balance of domain specificity and evaluation clarity
+
+### Models for Comparison
+We will compare the following models on the main task:
+
+1. **Vanilla Phi-3 Mini** (`phi3-mini`): `microsoft/Phi-3-mini-4k-instruct`
+   - 3.8B parameters
+   - Baseline small language model without fine-tuning
+
+2. **Vanilla Llama 3.2 1B** (`llama-3.2-1b`): `meta-llama/Llama-3.2-1B-Instruct`
+   - 1B parameters
+   - Ultra-lightweight baseline
+
+3. **Fine-tuned Small Model** (`medqa_finetuned_small`): `microsoft/DialoGPT-small`
+   - Small model fine-tuned on medical QA (placeholder for actual fine-tuned model)
+   - Represents the "fine-tuned small upper bound" for comparison
+   - Note: In production, this would be replaced with an actual fine-tuned model on MedQA
+
+### Comparison Setup
+- **Baseline**: Vanilla models (Phi-3 Mini, Llama 3.2 1B) without any adaptation
+- **ACE-full**: Vanilla models with full ACE playbook (unbounded)
+- **ACE-working-memory**: Vanilla models with limited playbook (token budget)
+- **Self-refine**: Vanilla models with per-sample self-refinement (no persistent playbook)
+- **Fine-tuned**: Pre-fine-tuned small model (upper bound comparison)
+
+### ACE Working Memory Scoring Logic
+
+The `ace_working_memory` mode uses a scored, limited playbook that strategically forgets entries under a token budget. The scoring formula combines:
+
+1. **Correctness ratio**: `success_count / (success_count + failure_count + 1)`
+   - Measures how often an entry appears in correct vs incorrect examples
+   - Higher ratio = more reliable entry
+
+2. **Recency decay**: `1.0 / (1.0 + alpha * age_in_steps)`
+   - Exponential decay based on steps since last use
+   - More recently used entries get higher scores
+   - Alpha = 0.1 (decay rate)
+
+3. **Genericity penalty**: -0.5 if entry is generic
+   - Generic entries (e.g., "think carefully", very short entries) are penalized
+   - Heuristics detect generic entries based on phrase matching and length
+
+**Token budget**: Default 500 tokens. Entries are greedily selected by score until budget is exceeded.
+**Token estimation**: Approximated as `word_count * 1.3` (doesn't require tokenizer calls).
+
+This scoring approach allows the playbook to prioritize:
+- Entries that have been successful in the past
+- Recently used entries (working memory effect)
+- Specific, actionable entries over generic advice
+
+## Device Override
+
+You can force a specific device using the `--device` flag:
+
+```bash
+# Archit on GPU laptop (CUDA)
+python -m scripts.run_experiment \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --mode baseline \
+  --device cuda \
+  --output-path results/medqa_phi3_baseline.csv
+
+# CPU-only sanity check
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode baseline \
+  --device cpu \
+  --limit 3 \
+  --output-path results/tatqa_tiny_cpu_baseline.csv
+
+# ACE epoch with device override
+python -m scripts.run_ace_epoch \
+  --model-id phi3-mini \
+  --task-name medqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_working_memory \
+  --device cuda \
+  --output-dir results/ace_phi3
+```
+
+**Note**: If the requested device is not available, the code will automatically fall back to CPU with a warning.
+
+## How to Run All Modes Quickly (Tiny)
+
+Quick sanity tests for all modes on `tatqa_tiny` with `--limit 5`:
+
+### 1. Baseline
+```bash
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode baseline \
+  --output-path results/check_tiny_baseline.csv \
+  --limit 5
+```
+
+### 2. ACE Full Mode
+```bash
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_full \
+  --limit 5 \
+  --output-dir results/check_ace_tiny
+```
+
+### 3. ACE Working Memory Mode
+```bash
+python -m scripts.run_ace_epoch \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --epochs 2 \
+  --ace-mode ace_working_memory \
+  --token-budget 500 \
+  --limit 5 \
+  --output-dir results/check_ace_tiny
+```
+
+### 4. Self-Refine Mode
+```bash
+python -m scripts.run_experiment \
+  --model-id sshleifer/tiny-gpt2 \
+  --task-name tatqa_tiny \
+  --mode self_refine \
+  --output-path results/check_tiny_self_refine.csv \
+  --limit 5
+```
+
+### 5. Summarize Results
+```bash
+python -m scripts.summarize_results \
+  --input-dir results/check_ace_tiny \
+  --output-path results/check_ace_summary.csv
+```
+
+**Note**: The fine-tuned small model (`medqa_finetuned_small`) targets medical QA (`medqa_tiny`), so use that task when testing it:
+```bash
+python -m scripts.run_experiment \
+  --model-id medqa_finetuned_small \
+  --task-name medqa_tiny \
+  --mode baseline \
+  --output-path results/check_finetuned_baseline.csv \
+  --limit 5
+```
 
 ## Next Steps for Person 1
 

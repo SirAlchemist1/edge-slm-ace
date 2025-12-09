@@ -11,10 +11,13 @@ from slm_ace.ace_roles import (
     build_reflector_prompt,
     parse_reflector_output_to_lessons,
     choose_lessons_for_playbook,
+    build_self_refine_critique_prompt,
+    build_self_refine_rewrite_prompt,
+    parse_generator_output,
 )
 from slm_ace.config import ModelConfig
 from slm_ace.metrics import compute_accuracy, compute_average_latency
-from slm_ace.model_manager import generate
+from slm_ace.model_manager import generate, count_tokens
 from slm_ace.playbook import Playbook
 
 
@@ -49,7 +52,7 @@ def run_dataset_baseline(
         domain: Domain name (e.g., "finance", "medical", "iot").
         config: ModelConfig with generation parameters (max_new_tokens, temperature, top_p).
         model_id: HuggingFace model ID (for result tracking).
-        task_name: Task name (e.g., "tatqa_tiny", "medqa_tiny") for result tracking.
+        task_name: Task name (e.g., "tatqa_tiny", "medqa_tiny", "iot_tiny") for result tracking.
         mode: Evaluation mode (default: "baseline").
     
     Returns:
@@ -102,29 +105,216 @@ def run_dataset_baseline(
         )
         latency_ms = (time.time() - start_time) * 1000
         
+        # Count tokens
+        prompt_tokens = count_tokens(tokenizer, prompt)
+        output_tokens = count_tokens(tokenizer, answer)
+        context_tokens = count_tokens(tokenizer, context or "")
+        
         # Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
         
-        # Record result with consistent schema
+        # Record result with consistent schema (canonical format for plotting)
         result = {
+            # Canonical columns (for plotting pipeline)
+            "qid": example_id,  # Canonical question ID
+            "task": task_name,  # Canonical task name
+            "model": model_id,  # Canonical model ID (will be normalized by plotting script)
+            "mode": mode,  # Already canonical
+            "is_correct": 1 if correct else 0,  # Canonical correctness
+            "context_tokens": context_tokens,  # For token efficiency plots
+            "latency_ms": latency_ms,  # For latency plots
+            # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
             "domain": domain,
-            "mode": mode,
             "sample_id": example_id,
             "gold": ground_truth,
             "pred": answer,
-            "latency_ms": latency_ms,
+            "correct": 1 if correct else 0,
+            # Token counts
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens,
             # Additional fields for debugging
             "question": question,
             "context": context or "",
-            "correct": 1 if correct else 0,
         }
         results.append(result)
         
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+    
+    # Compute summary
+    accuracy = compute_accuracy(predictions, labels)
+    avg_latency = compute_average_latency(latencies)
+    
+    summary = {
+        "accuracy": accuracy,
+        "avg_latency_ms": avg_latency,
+        "num_examples": len(dataset),
+    }
+    
+    return results, summary
+
+
+def run_dataset_self_refine(
+    model: AutoModelForCausalLM,
+    tokenizer: AutoTokenizer,
+    dataset: List[Dict],
+    domain: str,
+    config: ModelConfig,
+    model_id: str,
+    task_name: str,
+    mode: str = "self_refine",
+) -> tuple[List[Dict], Dict]:
+    """
+    Run self-refinement evaluation on a dataset (SEAL/SPICE-lite baseline).
+    
+    For each sample:
+    1. Generate initial answer (Generator-like prompt)
+    2. If ground-truth is available:
+       - Ask model to critique its own answer
+       - Ask model to rewrite answer after seeing critique and correct answer
+    3. Use the final rewritten answer as prediction
+    
+    No persistent playbook; this is all per-sample.
+    
+    Args:
+        model: Loaded language model.
+        tokenizer: Loaded tokenizer.
+        dataset: List of example dicts.
+        domain: Domain name.
+        config: ModelConfig with generation parameters.
+        model_id: HuggingFace model ID (for result tracking).
+        task_name: Task name for result tracking.
+        mode: Evaluation mode (default: "self_refine").
+        
+    Returns:
+        Tuple of (results, summary) with same schema as baseline.
+    """
+    results = []
+    predictions = []
+    labels = []
+    latencies = []
+    
+    for example in dataset:
+        example_id = example.get("id", "unknown")
+        question = example.get("question", "")
+        context = example.get("context")
+        ground_truth = example.get("answer", "")
+        
+        # Step 1: Generate initial answer
+        if context:
+            initial_prompt = f"Context: {context}\n\nQuestion: {question}\n\nAnswer:"
+        else:
+            initial_prompt = f"Question: {question}\n\nAnswer:"
+        
+        start_time = time.time()
+        initial_answer = generate(
+            model,
+            tokenizer,
+            initial_prompt,
+            max_new_tokens=config.max_new_tokens,
+            temperature=config.temperature,
+            top_p=config.top_p,
+        )
+        initial_latency_ms = (time.time() - start_time) * 1000
+        
+        # Step 2: Self-refinement (critique + rewrite)
+        if ground_truth:
+            # Generate critique
+            critique_prompt = build_self_refine_critique_prompt(
+                domain=domain,
+                question=question,
+                context=context,
+                initial_answer=initial_answer,
+                ground_truth=ground_truth,
+            )
+            
+            critique_start = time.time()
+            critique = generate(
+                model,
+                tokenizer,
+                critique_prompt,
+                max_new_tokens=config.max_new_tokens // 2,  # Shorter for critiques
+                temperature=config.temperature,
+                top_p=config.top_p,
+            )
+            critique_latency_ms = (time.time() - critique_start) * 1000
+            
+            # Generate rewritten answer
+            rewrite_prompt = build_self_refine_rewrite_prompt(
+                domain=domain,
+                question=question,
+                context=context,
+                initial_answer=initial_answer,
+                critique=critique,
+                ground_truth=ground_truth,
+            )
+            
+            rewrite_start = time.time()
+            final_answer = generate(
+                model,
+                tokenizer,
+                rewrite_prompt,
+                max_new_tokens=config.max_new_tokens,
+                temperature=config.temperature,
+                top_p=config.top_p,
+            )
+            rewrite_latency_ms = (time.time() - rewrite_start) * 1000
+            
+            total_latency_ms = initial_latency_ms + critique_latency_ms + rewrite_latency_ms
+        else:
+            # No ground truth available, use initial answer
+            final_answer = initial_answer
+            critique = ""
+            total_latency_ms = initial_latency_ms
+        
+        # Count tokens
+        if ground_truth:
+            # Count tokens for all prompts
+            initial_prompt_tokens = count_tokens(tokenizer, initial_prompt)
+            critique_prompt_tokens = count_tokens(tokenizer, critique_prompt)
+            rewrite_prompt_tokens = count_tokens(tokenizer, rewrite_prompt)
+            prompt_tokens = initial_prompt_tokens + critique_prompt_tokens + rewrite_prompt_tokens
+        else:
+            prompt_tokens = count_tokens(tokenizer, initial_prompt)
+        
+        output_tokens = count_tokens(tokenizer, final_answer)
+        context_tokens = count_tokens(tokenizer, context or "")
+        
+        # Check correctness
+        correct = final_answer.strip().lower() == ground_truth.strip().lower()
+        
+        # Record result with canonical format
+        result = {
+            # Canonical columns (for plotting pipeline)
+            "qid": example_id,
+            "task": task_name,
+            "model": model_id,
+            "mode": mode,
+            "is_correct": 1 if correct else 0,
+            "context_tokens": context_tokens,
+            "latency_ms": total_latency_ms,
+            # Legacy columns (for backward compatibility)
+            "model_id": model_id,
+            "task_name": task_name,
+            "domain": domain,
+            "sample_id": example_id,
+            "gold": ground_truth,
+            "pred": final_answer,
+            "correct": 1 if correct else 0,
+            # Token counts
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens,
+            "question": question,
+            "context": context or "",
+        }
+        results.append(result)
+        
+        predictions.append(final_answer)
+        labels.append(ground_truth)
+        latencies.append(total_latency_ms)
     
     # Compute summary
     accuracy = compute_accuracy(predictions, labels)
@@ -150,6 +340,8 @@ def run_dataset_ace(
     model_id: str,
     task_name: str,
     mode: str = "ace",
+    ace_mode: str = "ace_full",
+    token_budget: int = 500,
     reflect_on_correct_every_n: int = 5,
     prune_every_n: int = 10,
 ) -> tuple[List[Dict], Dict]:
@@ -164,6 +356,10 @@ def run_dataset_ace(
     3. Reflector: If incorrect (or periodically if correct), generate lessons
     4. Curator: Add filtered lessons to playbook, record feedback
     5. Periodically prune playbook to keep top entries
+    
+    ACE modes:
+    - ace_full: Uses top-k entries (unbounded playbook)
+    - ace_working_memory: Uses token-budgeted entries (limited playbook)
     
     TODO(Sathwik): Improve ACE logic in ace_roles.py:
     - Refine generator prompts to better incorporate playbook strategies
@@ -191,8 +387,10 @@ def run_dataset_ace(
         playbook: The ACE playbook (will be updated in-place).
         playbook_path: Path to save playbook after run.
         model_id: HuggingFace model ID (for result tracking).
-        task_name: Task name (e.g., "tatqa_tiny") for result tracking.
+        task_name: Task name (e.g., "tatqa_tiny", "medqa_tiny", "iot_tiny") for result tracking.
         mode: Evaluation mode (default: "ace").
+        ace_mode: ACE mode ("ace_full" or "ace_working_memory", default: "ace_full").
+        token_budget: Token budget for working memory mode (default: 500).
         reflect_on_correct_every_n: Reflect on correct answers every N examples (for learning).
         prune_every_n: Prune playbook every N examples to limit size.
         
@@ -238,11 +436,30 @@ def run_dataset_ace(
             playbook=playbook,
             question=question,
             context=context,
+            ace_mode=ace_mode,
+            token_budget=token_budget,
+            current_step=step,
         )
+        
+        # Track which entries were used (for working memory mode)
+        used_entry_ids = []
+        if ace_mode == "ace_working_memory":
+            # Get entries that were included in the prompt
+            from slm_ace.config import ACE_MODE_WORKING
+            used_entries = playbook.get_top_entries_for_budget(
+                domain=domain,
+                token_budget=token_budget,
+                current_step=step,
+            )
+            used_entry_ids = [e.id for e in used_entries]
+        else:
+            # For full mode, track top-k entries
+            used_entries = playbook.get_top_k(domain, k=5, current_step=step)
+            used_entry_ids = [e.id for e in used_entries]
         
         # Step 2: Generate answer
         start_time = time.time()
-        answer = generate(
+        raw_answer = generate(
             model,
             tokenizer,
             generator_prompt,
@@ -252,8 +469,26 @@ def run_dataset_ace(
         )
         latency_ms = (time.time() - start_time) * 1000
         
+        # Extract reasoning and answer from generator output
+        answer, reasoning = parse_generator_output(raw_answer)
+        # If parsing failed, use raw answer
+        if not answer:
+            answer = raw_answer.strip()
+        
         # Step 3: Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
+        
+        # Count tokens
+        prompt_tokens = count_tokens(tokenizer, generator_prompt)
+        output_tokens = count_tokens(tokenizer, answer)
+        # Count playbook context tokens (strategies section)
+        playbook_context_text = ""
+        if used_entries:
+            for entry in used_entries:
+                playbook_context_text += entry.text + "\n"
+        context_tokens = count_tokens(tokenizer, playbook_context_text)
+        # Also count original context if provided
+        original_context_tokens = count_tokens(tokenizer, context or "")
         
         # Step 4: Reflector - generate lessons
         should_reflect = not correct or (step % reflect_on_correct_every_n == 0)
@@ -265,7 +500,7 @@ def run_dataset_ace(
                 context=context,
                 model_answer=answer,
                 ground_truth=ground_truth,
-                reasoning=None,  # TODO: Extract reasoning if model provides it
+                reasoning=reasoning,  # Use extracted reasoning from generator output
             )
             
             # Generate reflection
@@ -301,24 +536,42 @@ def run_dataset_ace(
             reflection_text = ""
             reflection_latency_ms = 0.0
         
+        # Mark used entries (for working memory recency tracking)
+        # Also update success/failure counts based on correctness
+        for entry_id in used_entry_ids:
+            playbook.mark_entry_used(entry_id, step)
+            playbook.record_feedback(entry_id, helpful=correct)
+        
         # Step 6: Occasional pruning
         if step % prune_every_n == 0:
             playbook.prune(max_entries_per_domain=32)
         
-        # Record result with consistent schema
+        # Record result with consistent schema (canonical format for plotting)
+        # Use ace_mode for mode column if in ACE mode
+        result_mode = ace_mode if mode == "ace" else mode
         result = {
+            # Canonical columns (for plotting pipeline)
+            "qid": example_id,
+            "task": task_name,
+            "model": model_id,
+            "mode": result_mode,
+            "is_correct": 1 if correct else 0,
+            "context_tokens": context_tokens,  # Playbook context tokens
+            "latency_ms": latency_ms,
+            # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
             "domain": domain,
-            "mode": mode,
             "sample_id": example_id,
             "gold": ground_truth,
             "pred": answer,
-            "latency_ms": latency_ms,
+            "correct": 1 if correct else 0,
+            # Token counts
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens,
             # Additional fields for debugging
             "question": question,
             "context": context or "",
-            "correct": 1 if correct else 0,
             "reflection_latency_ms": reflection_latency_ms,
             "reflected": should_reflect,
         }

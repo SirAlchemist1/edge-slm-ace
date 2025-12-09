@@ -16,8 +16,13 @@ from slm_ace.ace_roles import (
     parse_generator_output,
 )
 from slm_ace.config import ModelConfig
-from slm_ace.metrics import compute_accuracy, compute_average_latency
-from slm_ace.model_manager import generate
+from slm_ace.metrics import (
+    compute_accuracy,
+    compute_average_latency,
+    semantic_answer_score,
+    compute_bleu_score,
+)
+from slm_ace.model_manager import generate, count_tokens
 from slm_ace.playbook import Playbook
 
 
@@ -139,7 +144,6 @@ def run_dataset_baseline(
             # Additional fields for debugging
             "question": question,
             "context": context or "",
-            "correct": 1 if correct else 0,
         }
         results.append(result)
         
@@ -157,8 +161,8 @@ def run_dataset_baseline(
         "accuracy": accuracy,
         "avg_latency_ms": avg_latency,
         "num_examples": len(dataset),
-        "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list),
-        "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list)
+        "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list) if prompt_tokens_list else 0.0,
+        "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list) if prompt_output_tokens_list else 0.0,
     }
     
     return results, summary
@@ -487,6 +491,20 @@ def run_dataset_ace(
         # Step 3: Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
         
+        # Compute semantic score and BLEU score for metrics
+        try:
+            score = semantic_answer_score(answer, ground_truth)
+        except Exception:
+            score = 0.0
+        
+        try:
+            bleu_score = compute_bleu_score(answer, ground_truth)
+        except Exception:
+            bleu_score = 0.0
+        
+        # Set result_mode based on ace_mode
+        result_mode = ace_mode  # Use ace_mode directly (ace_full or ace_working_memory)
+        
         # Count tokens
         prompt_tokens = count_tokens(tokenizer, generator_prompt)
         output_tokens = count_tokens(tokenizer, answer)
@@ -583,8 +601,6 @@ def run_dataset_ace(
             "reflected": should_reflect,
             "semantic_score": score,
             "bleu_score": bleu_score,
-            "prompt_tokens": prompt_tokens,
-            "output_tokens": output_tokens
         }
         results.append(result)
         
@@ -606,8 +622,8 @@ def run_dataset_ace(
         "avg_latency_ms": avg_latency,
         "num_examples": len(dataset),
         "playbook_size": len(playbook.entries),
-        "mean_prompt_token":sum(prompt_tokens_list) / len(prompt_tokens_list),
-        "mean_output_token":sum(prompt_output_tokens_list) / len(prompt_output_tokens_list)
+        "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list) if prompt_tokens_list else 0.0,
+        "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list) if prompt_output_tokens_list else 0.0,
     }
     
     return results, summary

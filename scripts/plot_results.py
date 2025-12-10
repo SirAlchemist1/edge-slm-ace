@@ -251,9 +251,127 @@ def main() -> int:
     # Plot 2: Accuracy by model and mode
     plot_accuracy_by_model_and_mode(df, output_dir / "accuracy_by_model_and_mode.png")
     
+    # Plot 3: Accuracy vs Peak RAM (Edge Feasibility)
+    plot_accuracy_vs_peak_memory(df, output_dir / "accuracy_vs_peak_memory.png")
+    
+    # Plot 4: Semantic Similarity by Mode (Quality Story)
+    plot_semantic_similarity_by_mode(df, output_dir / "semantic_similarity_by_mode.png")
+    
     print(f"\nPlots saved to {output_dir}/")
     
     return 0
+
+
+def plot_accuracy_vs_peak_memory(
+    df: pd.DataFrame,
+    output_path: Path,
+    figsize: tuple = (10, 6),
+) -> None:
+    """
+    Plot accuracy vs peak memory usage by mode (edge feasibility story).
+    
+    Args:
+        df: DataFrame with columns: mode, accuracy, peak_memory_mb
+        output_path: Path to save the plot.
+        figsize: Figure size tuple.
+    """
+    if "mode" not in df.columns or "accuracy" not in df.columns or "peak_memory_mb" not in df.columns:
+        print("Warning: Missing required columns (mode, accuracy, peak_memory_mb) for accuracy_vs_peak_memory plot", file=sys.stderr)
+        return
+    
+    # Filter to rows with valid data
+    plot_df = df[(df["accuracy"].notna()) & (df["peak_memory_mb"].notna())].copy()
+    
+    if len(plot_df) == 0:
+        print("Warning: No valid data for accuracy_vs_peak_memory plot", file=sys.stderr)
+        return
+    
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Plot scatter points colored by mode
+    modes = sorted(plot_df["mode"].unique())
+    colors = plt.cm.Set1(range(len(modes)))
+    
+    for mode, color in zip(modes, colors):
+        mode_df = plot_df[plot_df["mode"] == mode]
+        ax.scatter(
+            mode_df["peak_memory_mb"],
+            mode_df["accuracy"],
+            label=mode,
+            alpha=0.7,
+            s=100,
+            color=color,
+        )
+    
+    ax.set_xlabel("Peak RAM (MB)", fontsize=12)
+    ax.set_ylabel("Accuracy", fontsize=12)
+    ax.set_title("Accuracy vs Peak RAM by Mode (Edge Feasibility)", fontsize=14)
+    ax.legend(title="Mode", fontsize=10)
+    ax.grid(alpha=0.3)
+    
+    plt.tight_layout()
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved plot: {output_path}")
+
+
+def plot_semantic_similarity_by_mode(
+    df: pd.DataFrame,
+    output_path: Path,
+    figsize: tuple = (10, 6),
+) -> None:
+    """
+    Plot average semantic similarity by mode (quality story).
+    
+    Args:
+        df: DataFrame with columns: mode, avg_semantic_similarity
+        output_path: Path to save the plot.
+        figsize: Figure size tuple.
+    """
+    if "mode" not in df.columns or "avg_semantic_similarity" not in df.columns:
+        print("Warning: Missing required columns (mode, avg_semantic_similarity) for semantic_similarity_by_mode plot", file=sys.stderr)
+        return
+    
+    # Filter to rows with valid semantic similarity
+    plot_df = df[df["avg_semantic_similarity"].notna()].copy()
+    
+    if len(plot_df) == 0:
+        print("Warning: No valid semantic similarity data for semantic_similarity_by_mode plot", file=sys.stderr)
+        return
+    
+    # Group by mode and compute mean
+    mode_means = plot_df.groupby("mode")["avg_semantic_similarity"].mean().sort_index()
+    
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    bars = ax.bar(mode_means.index, mode_means.values, alpha=0.7, color=plt.cm.Set2(range(len(mode_means))))
+    
+    ax.set_ylabel("Avg Semantic Similarity", fontsize=12)
+    ax.set_xlabel("Mode", fontsize=12)
+    ax.set_title("Semantic Quality by Mode", fontsize=14)
+    ax.set_ylim(0, max(1.0, mode_means.max() * 1.1))
+    ax.grid(axis="y", alpha=0.3)
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            height,
+            f"{height:.3f}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+        )
+    
+    plt.tight_layout()
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved plot: {output_path}")
 
 
 if __name__ == "__main__":

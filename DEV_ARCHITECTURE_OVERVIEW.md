@@ -274,6 +274,9 @@ defaults:
   "mode": "baseline",
   "accuracy": 0.0,
   "avg_latency_ms": 784.8,
+  "peak_memory_mb": 453.3,
+  "peak_gpu_memory_mb": null,
+  "avg_semantic_similarity": 0.039,
   "playbook": {
     "initial_size": 0,
     "final_size": 3,
@@ -284,7 +287,7 @@ defaults:
 
 ### Predictions JSONL
 ```jsonl
-{"qid": "tatqa_1", "task": "tatqa_tiny", "model": "...", "mode": "baseline", "gold": "100000", "pred": "...", "is_correct": 0, ...}
+{"qid": "tatqa_1", "task": "tatqa_tiny", "model": "...", "mode": "baseline", "gold": "100000", "pred": "...", "is_correct": 0, "semantic_similarity": 0.039, ...}
 {"qid": "tatqa_2", ...}
 ```
 
@@ -295,7 +298,34 @@ defaults:
 
 ---
 
-## 8. Tests
+## 8. Edge & Semantic Metrics
+
+The framework tracks additional metrics tailored for edge deployment and semantic quality assessment:
+
+### Edge Feasibility Metrics
+
+- **peak_memory_mb**: Approximate peak host RAM usage during the experiment (via `psutil`). Tracks the maximum resident set size (RSS) from the start of model loading through the end of evaluation.
+
+- **peak_gpu_memory_mb**: Peak GPU VRAM usage (if CUDA is available, via `torch.cuda.max_memory_allocated`). Reports None for CPU/MPS runs.
+
+These metrics are captured using the `PeakMemoryTracker` context manager in `src/edge_slm_ace/utils/metrics.py`, which wraps the entire model loading and evaluation phase.
+
+### Semantic Quality Metrics
+
+- **avg_semantic_similarity**: Mean cosine similarity between predictions and gold answers using `sentence-transformers/all-MiniLM-L6-v2` embeddings (BERTScore-lite approach). Provides a more nuanced measure of answer quality than exact-match accuracy.
+
+- **semantic_similarity (per-example)**: Added to the predictions CSV for fine-grained error analysis. Each row includes the semantic similarity score for that specific prediction-reference pair.
+
+The `SemanticEvaluator` class (singleton pattern) loads the embedding model once and reuses it across all comparisons for efficiency.
+
+**Integration:**
+- Both metrics are automatically computed in `scripts/run_experiment.py`
+- Aggregated in `scripts/aggregate_results.py` (added to summary CSV)
+- Visualized in `scripts/plot_results.py` (accuracy vs peak memory, semantic similarity by mode)
+
+---
+
+## 9. Tests
 
 ```bash
 # Run all tests (42 tests)
@@ -313,7 +343,7 @@ pytest tests/test_ace_roles.py -v
 
 ---
 
-## 9. Key Improvements (Phase 2-4)
+## 10. Key Improvements (Phase 2-4)
 
 1. **Formal Retention Scoring**: Implemented the exact formula with configurable hyperparameters
 2. **Token-Budget Eviction**: Automatic eviction of low-score entries when over budget
@@ -325,7 +355,7 @@ pytest tests/test_ace_roles.py -v
 
 ---
 
-## 10. Standard Experiment Run
+## 11. Standard Experiment Run
 
 **⚠️ STANDARD RUN: Use this exact sequence for all initial experiments.**
 
@@ -354,7 +384,7 @@ python -m scripts.plot_results
 
 ---
 
-## 11. Results Aggregation and Plotting
+## 12. Results Aggregation and Plotting
 
 After running experiments, you can aggregate results and generate plots:
 

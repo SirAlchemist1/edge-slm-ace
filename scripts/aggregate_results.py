@@ -114,6 +114,10 @@ def load_and_extract_metrics(metrics_path: Path) -> Optional[Dict[str, Any]]:
         "limit_applied": metrics.get("limit_applied"),
         "wall_time_seconds": metrics.get("wall_time_seconds"),
         "timestamp": metrics.get("timestamp"),
+        # Edge & Semantic metrics
+        "peak_memory_mb": metrics.get("peak_memory_mb"),
+        "peak_gpu_memory_mb": metrics.get("peak_gpu_memory_mb"),
+        "avg_semantic_similarity": metrics.get("avg_semantic_similarity"),
     }
     
     # Extract token metrics (support both naming conventions)

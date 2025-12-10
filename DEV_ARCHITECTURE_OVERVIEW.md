@@ -325,4 +325,61 @@ pytest tests/test_ace_roles.py -v
 
 ---
 
+## 10. Results Aggregation and Plotting
+
+After running experiments, you can aggregate results and generate plots:
+
+### Aggregating Results
+
+```bash
+# Aggregate all metrics.json files from results/
+python -m scripts.aggregate_results
+
+# Custom paths
+python -m scripts.aggregate_results \
+    --results-root results/ \
+    --output-csv results/summary.csv \
+    --output-json results/summary.json
+```
+
+This creates:
+- `results/summary.csv` - Aggregated metrics in CSV format
+- `results/summary.json` - Same data in JSON format
+
+The script:
+- Recursively finds all `metrics.json` files
+- Extracts: model_id, task_name, mode, ace_mode, device, accuracy, latency, playbook stats
+- Prints a summary table to stdout
+
+### Generating Plots
+
+```bash
+# Generate plots from summary CSV
+python -m scripts.plot_results
+
+# Custom paths
+python -m scripts.plot_results \
+    --summary-csv results/summary.csv \
+    --output-dir results/plots/
+```
+
+This creates:
+- `results/plots/accuracy_by_mode.png` - Accuracy comparison by mode (baseline vs ACE modes) per task
+- `results/plots/accuracy_by_model_and_mode.png` - Accuracy comparison across models and modes
+
+### Complete Workflow
+
+```bash
+# 1. Run grid experiments
+python -m scripts.run_eval_grid --config configs/experiment_grid.yaml
+
+# 2. Aggregate results
+python -m scripts.aggregate_results
+
+# 3. Generate plots
+python -m scripts.plot_results
+```
+
+---
+
 *Document auto-generated from codebase analysis.*

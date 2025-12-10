@@ -41,6 +41,7 @@ from edge_slm_ace.models.model_manager import load_model_and_tokenizer
 from edge_slm_ace.memory.playbook import Playbook
 from edge_slm_ace.core.runner import run_dataset_baseline, run_dataset_ace, run_dataset_self_refine
 from edge_slm_ace.utils.device_utils import get_device, resolve_device_override
+from edge_slm_ace.utils.metrics import PeakMemoryTracker, SemanticEvaluator
 
 
 def load_dataset(path: Path) -> List[Dict]:
@@ -320,121 +321,155 @@ Examples:
         if not args.quiet:
             print(f"Using device: {device} (requested: {device_requested})")
         
-        # Load model and tokenizer
+        # Track peak memory during model loading and evaluation
+        memory_tracker = PeakMemoryTracker()
+        
+        # Load model and tokenizer (within memory tracking)
         if not args.quiet:
             print(f"Loading model: {config.model_id}")
         
         try:
-            model, tokenizer = load_model_and_tokenizer(
-                config.model_id,
-                device=device,
-                device_override=device_override_str,
-            )
-            if not args.quiet:
-                print("Model loaded successfully.")
+            with memory_tracker:
+                model, tokenizer = load_model_and_tokenizer(
+                    config.model_id,
+                    device=device,
+                    device_override=device_override_str,
+                )
+                if not args.quiet:
+                    print("Model loaded successfully.")
+                
+                # Load dataset
+                dataset_path = Path(dataset_path_str)
+                if not dataset_path.exists():
+                    print(f"Error: Dataset not found: {dataset_path}")
+                    return 1
+                
+                try:
+                    dataset = load_dataset(dataset_path)
+                except Exception as e:
+                    print(f"Error: Failed to load dataset: {e}")
+                    return 1
+                
+                original_size = len(dataset)
+                if args.limit is not None:
+                    dataset = dataset[:args.limit]
+                
+                if not args.quiet:
+                    print(f"Loaded {len(dataset)} examples from {dataset_path}" + 
+                          (f" (limited from {original_size})" if args.limit else ""))
+                
+                # Run evaluation (still within memory tracking)
+                if args.mode == "baseline":
+                    if not args.quiet:
+                        print("Running baseline evaluation...")
+                    results, summary = run_dataset_baseline(
+                        model=model,
+                        tokenizer=tokenizer,
+                        dataset=dataset,
+                        domain=domain,
+                        config=config,
+                        model_id=config.model_id,
+                        task_name=task_name,
+                        mode=args.mode,
+                    )
+                    playbook_stats = None
+                    
+                elif args.mode == "self_refine":
+                    if not args.quiet:
+                        print("Running self-refinement evaluation...")
+                    results, summary = run_dataset_self_refine(
+                        model=model,
+                        tokenizer=tokenizer,
+                        dataset=dataset,
+                        domain=domain,
+                        config=config,
+                        model_id=config.model_id,
+                        task_name=task_name,
+                        mode=args.mode,
+                    )
+                    playbook_stats = None
+                    
+                else:  # ACE mode
+                    if not args.quiet:
+                        print(f"Running ACE evaluation (mode: {args.ace_mode})...")
+                    
+                    playbook_path = Path(args.playbook_path)
+                    
+                    # Load or create playbook
+                    if playbook_path.exists():
+                        if not args.quiet:
+                            print(f"Loading playbook from {playbook_path}")
+                        playbook = Playbook.load(playbook_path, token_budget=args.token_budget)
+                    else:
+                        if not args.quiet:
+                            print(f"Creating new playbook at {playbook_path}")
+                        playbook = Playbook(token_budget=args.token_budget)
+                    
+                    initial_playbook_size = len(playbook.entries)
+                    
+                    results, summary = run_dataset_ace(
+                        model=model,
+                        tokenizer=tokenizer,
+                        dataset=dataset,
+                        domain=domain,
+                        config=config,
+                        playbook=playbook,
+                        playbook_path=playbook_path,
+                        model_id=config.model_id,
+                        task_name=task_name,
+                        mode=args.mode,
+                        ace_mode=args.ace_mode,
+                        token_budget=args.token_budget,
+                        top_k=args.top_k,
+                        prune_every_n=args.prune_every_n,
+                        max_entries_per_domain=args.max_entries_per_domain,
+                    )
+                    
+                    playbook_stats = {
+                        "initial_size": initial_playbook_size,
+                        "final_size": len(playbook.entries),
+                        "entries_added": len(playbook.entries) - initial_playbook_size,
+                        "domain_stats": playbook.get_stats(domain),
+                    }
+                    
+                    if not args.quiet:
+                        print(f"Playbook: {initial_playbook_size} → {len(playbook.entries)} entries")
+                
+                # Update memory tracker one final time
+                memory_tracker.update()
         except Exception as e:
             print(f"Error: Failed to load model '{config.model_id}': {e}")
             return 1
         
-        # Load dataset
-        dataset_path = Path(dataset_path_str)
-        if not dataset_path.exists():
-            print(f"Error: Dataset not found: {dataset_path}")
-            return 1
-        
-        try:
-            dataset = load_dataset(dataset_path)
-        except Exception as e:
-            print(f"Error: Failed to load dataset: {e}")
-            return 1
-        
-        original_size = len(dataset)
-        if args.limit is not None:
-            dataset = dataset[:args.limit]
-        
-        if not args.quiet:
-            print(f"Loaded {len(dataset)} examples from {dataset_path}" + 
-                  (f" (limited from {original_size})" if args.limit else ""))
-        
-        # Run evaluation
-        if args.mode == "baseline":
-            if not args.quiet:
-                print("Running baseline evaluation...")
-            results, summary = run_dataset_baseline(
-                model=model,
-                tokenizer=tokenizer,
-                dataset=dataset,
-                domain=domain,
-                config=config,
-                model_id=config.model_id,
-                task_name=task_name,
-                mode=args.mode,
-            )
-            playbook_stats = None
-            
-        elif args.mode == "self_refine":
-            if not args.quiet:
-                print("Running self-refinement evaluation...")
-            results, summary = run_dataset_self_refine(
-                model=model,
-                tokenizer=tokenizer,
-                dataset=dataset,
-                domain=domain,
-                config=config,
-                model_id=config.model_id,
-                task_name=task_name,
-                mode=args.mode,
-            )
-            playbook_stats = None
-            
-        else:  # ACE mode
-            if not args.quiet:
-                print(f"Running ACE evaluation (mode: {args.ace_mode})...")
-            
-            playbook_path = Path(args.playbook_path)
-            
-            # Load or create playbook
-            if playbook_path.exists():
-                if not args.quiet:
-                    print(f"Loading playbook from {playbook_path}")
-                playbook = Playbook.load(playbook_path, token_budget=args.token_budget)
-            else:
-                if not args.quiet:
-                    print(f"Creating new playbook at {playbook_path}")
-                playbook = Playbook(token_budget=args.token_budget)
-            
-            initial_playbook_size = len(playbook.entries)
-            
-            results, summary = run_dataset_ace(
-                model=model,
-                tokenizer=tokenizer,
-                dataset=dataset,
-                domain=domain,
-                config=config,
-                playbook=playbook,
-                playbook_path=playbook_path,
-                model_id=config.model_id,
-                task_name=task_name,
-                mode=args.mode,
-                ace_mode=args.ace_mode,
-                token_budget=args.token_budget,
-                top_k=args.top_k,
-                prune_every_n=args.prune_every_n,
-                max_entries_per_domain=args.max_entries_per_domain,
-            )
-            
-            playbook_stats = {
-                "initial_size": initial_playbook_size,
-                "final_size": len(playbook.entries),
-                "entries_added": len(playbook.entries) - initial_playbook_size,
-                "domain_stats": playbook.get_stats(domain),
-            }
-            
-            if not args.quiet:
-                print(f"Playbook: {initial_playbook_size} → {len(playbook.entries)} entries")
         
         # Calculate wall time
         wall_time_seconds = time.time() - wall_start
+        
+        # Compute semantic similarity for each result (if ground truth available)
+        semantic_evaluator = None
+        semantic_similarities = []
+        try:
+            semantic_evaluator = SemanticEvaluator.get_instance()
+        except Exception as e:
+            if not args.quiet:
+                print(f"Warning: Semantic similarity unavailable: {e}")
+        
+        if semantic_evaluator:
+            for result in results:
+                if "gold" in result and "pred" in result:
+                    similarity = semantic_evaluator.compute_similarity(
+                        result["pred"],
+                        result["gold"]
+                    )
+                    result["semantic_similarity"] = similarity
+                    semantic_similarities.append(similarity)
+                else:
+                    semantic_similarities.append(0.0)
+        
+        # Compute average semantic similarity
+        avg_semantic_similarity = None
+        if semantic_similarities:
+            avg_semantic_similarity = sum(semantic_similarities) / len(semantic_similarities)
         
         # Save results CSV
         output_path = Path(args.output_path)
@@ -458,6 +493,9 @@ Examples:
             "device_used": device_used,
             "num_examples": len(dataset),
             "limit_applied": args.limit,
+            "peak_memory_mb": memory_tracker.peak_memory_mb,
+            "peak_gpu_memory_mb": memory_tracker.peak_gpu_memory_mb if memory_tracker.peak_gpu_memory_mb > 0 else None,
+            "avg_semantic_similarity": avg_semantic_similarity,
             **summary,
         }
         

@@ -19,6 +19,8 @@ seaborn>=0.12.0
 tqdm>=4.66.0
 pyyaml>=6.0
 jsonlines>=4.0.0
+psutil>=5.9.0  # For peak memory tracking
+sentence-transformers>=2.2.0  # For semantic similarity (BERTScore-lite)
 
 # Development
 pytest>=7.4.0

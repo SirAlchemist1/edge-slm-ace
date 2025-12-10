@@ -1,11 +1,29 @@
 """Evaluation metrics for model performance."""
 
 from typing import List, Optional, Tuple, Dict
+from contextlib import contextmanager
 import re
 import math
 from collections import Counter
 from difflib import SequenceMatcher
 import numpy as np
+
+# Try to import psutil for memory tracking
+try:
+    import psutil
+    import os
+    _PSUTIL_AVAILABLE = True
+except ImportError:
+    psutil = None
+    _PSUTIL_AVAILABLE = False
+
+# Try to import torch for GPU memory tracking
+try:
+    import torch
+    _TORCH_AVAILABLE = True
+except ImportError:
+    torch = None
+    _TORCH_AVAILABLE = False
 
 # Try to import sentence transformers for semantic similarity (optional)
 try:
@@ -436,3 +454,185 @@ def compute_semantic_accuracy(
     # Fallback to rule-based if sentence-transformers failed
     hits = sum(1 for p, g in zip(preds, labels) if semantic_answer_score(p, g) >= threshold)
     return hits / len(preds)
+
+
+# ------------------------------
+# Peak Memory Tracking (Edge Feasibility)
+# ------------------------------
+
+class PeakMemoryTracker:
+    """
+    Context manager for tracking peak RAM usage during code execution.
+    
+    Tracks both CPU RAM (via psutil) and GPU VRAM (via torch.cuda if available).
+    
+    Usage:
+        with PeakMemoryTracker() as tracker:
+            # Your code here
+            model, tokenizer = load_model(...)
+            results = run_evaluation(...)
+        
+        peak_mb = tracker.peak_memory_mb
+        peak_gpu_mb = tracker.peak_gpu_memory_mb  # if CUDA available
+    """
+    
+    def __init__(self):
+        self.process = None
+        self.initial_memory_mb = 0.0
+        self.peak_memory_mb = 0.0
+        self.initial_gpu_memory_mb = 0.0
+        self.peak_gpu_memory_mb = 0.0
+        self._tracking = False
+    
+    def __enter__(self):
+        """Start tracking memory."""
+        self._tracking = True
+        
+        # Track CPU RAM
+        if _PSUTIL_AVAILABLE:
+            self.process = psutil.Process(os.getpid())
+            self.initial_memory_mb = self.process.memory_info().rss / (1024 * 1024)
+            self.peak_memory_mb = self.initial_memory_mb
+        else:
+            self.initial_memory_mb = 0.0
+            self.peak_memory_mb = 0.0
+        
+        # Track GPU VRAM if CUDA is available
+        if _TORCH_AVAILABLE and torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+            self.initial_gpu_memory_mb = torch.cuda.memory_allocated() / (1024 * 1024)
+            self.peak_gpu_memory_mb = self.initial_gpu_memory_mb
+        else:
+            self.initial_gpu_memory_mb = 0.0
+            self.peak_gpu_memory_mb = 0.0
+        
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Stop tracking and record peak memory."""
+        self._tracking = False
+        
+        # Final CPU RAM check
+        if _PSUTIL_AVAILABLE and self.process:
+            current_memory_mb = self.process.memory_info().rss / (1024 * 1024)
+            self.peak_memory_mb = max(self.peak_memory_mb, current_memory_mb)
+        
+        # Final GPU VRAM check
+        if _TORCH_AVAILABLE and torch.cuda.is_available():
+            peak_gpu_bytes = torch.cuda.max_memory_allocated()
+            self.peak_gpu_memory_mb = peak_gpu_bytes / (1024 * 1024)
+        
+        return False  # Don't suppress exceptions
+    
+    def update(self):
+        """Manually update peak memory (useful for long-running loops)."""
+        if not self._tracking:
+            return
+        
+        # Update CPU RAM peak
+        if _PSUTIL_AVAILABLE and self.process:
+            current_memory_mb = self.process.memory_info().rss / (1024 * 1024)
+            self.peak_memory_mb = max(self.peak_memory_mb, current_memory_mb)
+        
+        # GPU VRAM is tracked automatically by torch.cuda.max_memory_allocated()
+    
+    @property
+    def memory_delta_mb(self) -> float:
+        """Return the increase in memory usage (peak - initial)."""
+        return self.peak_memory_mb - self.initial_memory_mb
+    
+    @property
+    def gpu_memory_delta_mb(self) -> float:
+        """Return the increase in GPU memory usage (peak - initial)."""
+        return self.peak_gpu_memory_mb - self.initial_gpu_memory_mb
+
+
+# ------------------------------
+# Semantic Evaluator (BERTScore-lite)
+# ------------------------------
+
+class SemanticEvaluator:
+    """
+    Lightweight semantic similarity evaluator using sentence-transformers.
+    
+    Uses 'all-MiniLM-L6-v2' model for efficient edge-friendly semantic similarity.
+    Implements singleton pattern to load model only once.
+    
+    Usage:
+        evaluator = SemanticEvaluator.get_instance()
+        similarity = evaluator.compute_similarity("prediction", "reference")
+    """
+    
+    _instance = None
+    _model = None
+    _model_name = "sentence-transformers/all-MiniLM-L6-v2"
+    
+    def __init__(self):
+        """Private constructor - use get_instance() instead."""
+        if SemanticEvaluator._model is None:
+            self._load_model()
+    
+    @classmethod
+    def get_instance(cls) -> "SemanticEvaluator":
+        """Get singleton instance of SemanticEvaluator."""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+    
+    def _load_model(self):
+        """Load the sentence-transformers model."""
+        if not _SEMANTIC_MODEL_AVAILABLE:
+            raise ImportError(
+                "sentence-transformers is required for SemanticEvaluator. "
+                "Install with: pip install sentence-transformers"
+            )
+        
+        try:
+            SemanticEvaluator._model = SentenceTransformer(self._model_name)
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load semantic model '{self._model_name}': {e}"
+            )
+    
+    def compute_similarity(self, prediction: str, reference: str) -> float:
+        """
+        Compute semantic similarity between prediction and reference.
+        
+        Uses cosine similarity of sentence embeddings.
+        
+        Args:
+            prediction: The predicted/generated text.
+            reference: The ground truth/reference text.
+            
+        Returns:
+            Similarity score between 0.0 and 1.0 (higher = more similar).
+        """
+        if SemanticEvaluator._model is None:
+            self._load_model()
+        
+        if not prediction or not reference:
+            return 0.0
+        
+        try:
+            # Compute embeddings
+            pred_embedding = SemanticEvaluator._model.encode(
+                prediction,
+                convert_to_numpy=True,
+                normalize_embeddings=True
+            )
+            ref_embedding = SemanticEvaluator._model.encode(
+                reference,
+                convert_to_numpy=True,
+                normalize_embeddings=True
+            )
+            
+            # Compute cosine similarity (since embeddings are normalized)
+            similarity = np.dot(pred_embedding, ref_embedding)
+            
+            # Clamp to [0, 1] (should already be in this range for normalized embeddings)
+            return float(np.clip(similarity, 0.0, 1.0))
+            
+        except Exception as e:
+            # Fallback to rule-based similarity if embedding fails
+            print(f"[SemanticEvaluator] Warning: Embedding computation failed: {e}; falling back to rule-based similarity")
+            return semantic_answer_score(prediction, reference)

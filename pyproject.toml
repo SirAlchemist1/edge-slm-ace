@@ -2,6 +2,12 @@
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+packages = ["edge_slm_ace"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
 [project]
 name = "edge-slm-ace"
 version = "0.1.0"

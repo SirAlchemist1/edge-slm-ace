@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from slm_ace.ace_roles import (
+from edge_slm_ace.core.ace_roles import (
     build_generator_prompt,
     build_reflector_prompt,
     parse_reflector_output_to_lessons,
@@ -15,15 +15,15 @@ from slm_ace.ace_roles import (
     build_self_refine_rewrite_prompt,
     parse_generator_output,
 )
-from slm_ace.config import ModelConfig
-from slm_ace.metrics import (
+from edge_slm_ace.utils.config import ModelConfig
+from edge_slm_ace.utils.metrics import (
     compute_accuracy,
     compute_average_latency,
     semantic_answer_score,
     compute_bleu_score,
 )
-from slm_ace.model_manager import generate, count_tokens
-from slm_ace.playbook import Playbook
+from edge_slm_ace.models.model_manager import generate, count_tokens
+from edge_slm_ace.memory.playbook import Playbook
 
 
 def run_dataset_baseline(
@@ -353,8 +353,10 @@ def run_dataset_ace(
     mode: str = "ace",
     ace_mode: str = "ace_full",
     token_budget: int = 500,
+    top_k: int = 5,
     reflect_on_correct_every_n: int = 5,
     prune_every_n: int = 10,
+    max_entries_per_domain: int = 32,
 ) -> tuple[List[Dict], Dict]:
     """
     Run ACE-style adaptive evaluation on a dataset.
@@ -402,8 +404,10 @@ def run_dataset_ace(
         mode: Evaluation mode (default: "ace").
         ace_mode: ACE mode ("ace_full" or "ace_working_memory", default: "ace_full").
         token_budget: Token budget for working memory mode (default: 500).
+        top_k: Number of top playbook entries to use in ace_full mode (default: 5).
         reflect_on_correct_every_n: Reflect on correct answers every N examples (for learning).
         prune_every_n: Prune playbook every N examples to limit size.
+        max_entries_per_domain: Maximum entries per domain after pruning (default: 32).
         
     Returns:
         Tuple of (results, summary):
@@ -451,14 +455,15 @@ def run_dataset_ace(
             context=context,
             ace_mode=ace_mode,
             token_budget=token_budget,
+            top_k=top_k,
             current_step=step,
         )
         
-        # Track which entries were used (for working memory mode)
+        # Track which entries were used (retrieved and included in prompt)
+        # This is done BEFORE generation so we know exactly which lessons were used
         used_entry_ids = []
         if ace_mode == "ace_working_memory":
-            # Get entries that were included in the prompt
-            from slm_ace.config import ACE_MODE_WORKING
+            # Working memory mode: token-budgeted selection
             used_entries = playbook.get_top_entries_for_budget(
                 domain=domain,
                 token_budget=token_budget,
@@ -466,8 +471,8 @@ def run_dataset_ace(
             )
             used_entry_ids = [e.id for e in used_entries]
         else:
-            # For full mode, track top-k entries
-            used_entries = playbook.get_top_k(domain, k=5, current_step=step)
+            # Full mode: top-k entries
+            used_entries = playbook.get_top_k(domain, k=top_k, current_step=step)
             used_entry_ids = [e.id for e in used_entries]
         
         # Step 2: Generate answer
@@ -551,14 +556,17 @@ def run_dataset_ace(
             )
             
             # Step 5: Curator - add lessons to playbook
+            # NOTE: We do NOT record feedback for newly added lessons here.
+            # Lessons should only receive feedback when they are actually USED
+            # in a subsequent prompt. Recording feedback at creation time would
+            # bias the lesson based on the example it was derived from, not on
+            # whether it actually helps future examples.
             for lesson in filtered_lessons:
-                entry = playbook.add_entry(
+                playbook.add_entry(
                     domain=domain,
                     text=lesson,
                     step=step,
                 )
-                # Record feedback based on correctness
-                playbook.record_feedback(entry.id, helpful=correct)
         else:
             reflection_text = ""
             reflection_latency_ms = 0.0
@@ -571,7 +579,7 @@ def run_dataset_ace(
         
         # Step 6: Occasional pruning
         if step % prune_every_n == 0:
-            playbook.prune(max_entries_per_domain=32)
+            playbook.prune(max_entries_per_domain=max_entries_per_domain)
         
         # Record result with consistent schema
         result = {

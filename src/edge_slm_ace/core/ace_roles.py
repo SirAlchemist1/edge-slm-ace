@@ -3,7 +3,7 @@
 import re
 from typing import List, Optional, Tuple
 
-from slm_ace.playbook import Playbook
+from edge_slm_ace.memory.playbook import Playbook
 
 
 def _get_domain_specific_instructions(domain: str) -> Optional[str]:
@@ -61,6 +61,7 @@ def build_generator_prompt(
     context: Optional[str] = None,
     ace_mode: str = "ace_full",
     token_budget: int = 500,
+    top_k: int = 5,
     current_step: int = 0,
 ) -> str:
     """
@@ -86,7 +87,7 @@ def build_generator_prompt(
     # Get strategies from playbook based on mode
     if ace_mode == "ace_working_memory":
         # Use token-budgeted selection for working memory mode
-        from slm_ace.config import ACE_MODE_WORKING
+        from edge_slm_ace.utils.config import ACE_MODE_WORKING
         top_strategies = playbook.get_top_entries_for_budget(
             domain=domain,
             token_budget=token_budget,
@@ -94,7 +95,7 @@ def build_generator_prompt(
         )
     else:
         # Use top-k for full ACE mode
-        top_strategies = playbook.get_top_k(domain, k=5, current_step=current_step)
+        top_strategies = playbook.get_top_k(domain, k=top_k, current_step=current_step)
     
     # Build domain header with domain-specific instructions
     domain_instructions = _get_domain_specific_instructions(domain)
@@ -228,26 +229,41 @@ def parse_generator_output(text: str) -> Tuple[str, Optional[str]]:
     """
     Parse the Generator's output to extract reasoning and answer.
     
-    The Generator output should have the format:
-    Reasoning:
-    [reasoning text]
+    This parser is designed to be robust to various output formats:
+    - Explicit "Reasoning:" and "Answer:" sections
+    - Just an answer without structure
+    - Malformed outputs with missing delimiters
+    - Numeric answers embedded in text
     
-    Answer:
-    [answer text]
+    The Generator output ideally has the format:
+        Reasoning:
+        [reasoning text]
+        
+        Answer:
+        [answer text]
+    
+    But we try to recover even when the format is different.
     
     Args:
         text: Raw output from the Generator model.
         
     Returns:
-        Tuple of (answer, reasoning). Reasoning may be None if not found.
+        Tuple of (answer, reasoning). 
+        - answer: The extracted answer (never None, at worst returns cleaned text)
+        - reasoning: The extracted reasoning (may be None if not found)
     """
+    if not text or not text.strip():
+        return "", None
+    
+    text = text.strip()
     reasoning = None
     answer = None
     
-    # Try to extract reasoning and answer sections
-    text_lower = text.lower()
-    reasoning_keywords = ["reasoning:", "reasoning", "step-by-step:", "steps:"]
-    answer_keywords = ["answer:", "answer", "final answer:", "result:"]
+    import re
+    
+    # Strategy 1: Section-based parsing (most reliable for structured output)
+    reasoning_keywords = ["reasoning:", "step-by-step:", "steps:", "solution:"]
+    answer_keywords = ["answer:", "final answer:", "result:", "therefore:"]
     
     lines = text.split("\n")
     current_section = None
@@ -255,63 +271,85 @@ def parse_generator_output(text: str) -> Tuple[str, Optional[str]]:
     answer_lines = []
     
     for line in lines:
-        line_lower = line.lower().strip()
+        line_stripped = line.strip()
+        line_lower = line_stripped.lower()
         
         # Check if this line starts a new section
-        if any(keyword in line_lower for keyword in reasoning_keywords):
-            current_section = "reasoning"
-            # Extract text after the keyword
-            for keyword in reasoning_keywords:
-                if keyword in line_lower:
-                    after_keyword = line[line_lower.find(keyword) + len(keyword):].strip()
-                    if after_keyword:
-                        reasoning_lines.append(after_keyword)
-                    break
-            continue
-        elif any(keyword in line_lower for keyword in answer_keywords):
+        is_reasoning_header = any(line_lower.startswith(k) for k in reasoning_keywords)
+        is_answer_header = any(line_lower.startswith(k) for k in answer_keywords)
+        
+        if is_answer_header:
             current_section = "answer"
             # Extract text after the keyword
             for keyword in answer_keywords:
-                if keyword in line_lower:
-                    after_keyword = line[line_lower.find(keyword) + len(keyword):].strip()
+                if line_lower.startswith(keyword):
+                    after_keyword = line_stripped[len(keyword):].strip()
                     if after_keyword:
                         answer_lines.append(after_keyword)
                     break
-            continue
-        
-        # Add line to current section
-        if current_section == "reasoning":
-            if line.strip():
-                reasoning_lines.append(line.strip())
-        elif current_section == "answer":
-            if line.strip():
-                answer_lines.append(line.strip())
+        elif is_reasoning_header:
+            current_section = "reasoning"
+            for keyword in reasoning_keywords:
+                if line_lower.startswith(keyword):
+                    after_keyword = line_stripped[len(keyword):].strip()
+                    if after_keyword:
+                        reasoning_lines.append(after_keyword)
+                    break
+        elif current_section == "reasoning" and line_stripped:
+            reasoning_lines.append(line_stripped)
+        elif current_section == "answer" and line_stripped:
+            answer_lines.append(line_stripped)
     
-    # Build reasoning and answer strings
     if reasoning_lines:
         reasoning = "\n".join(reasoning_lines).strip()
     
     if answer_lines:
         answer = "\n".join(answer_lines).strip()
-    else:
-        # If no explicit answer section, try to find the last substantial line
-        # or just use the whole text if no structure found
-        if not reasoning and not answer:
-            # No structured format found, return whole text as answer
-            answer = text.strip()
-        elif reasoning:
-            # Has reasoning but no explicit answer section
-            # Answer might be after reasoning or we need to extract it differently
-            # For now, try to find the last line or last few lines as answer
-            non_reasoning_lines = [l.strip() for l in lines if l.strip() and l.strip().lower() not in [k.lower() for k in reasoning_keywords + answer_keywords]]
-            if non_reasoning_lines:
-                # Take the last substantial line(s) as answer
-                answer = non_reasoning_lines[-1]
-                if len(non_reasoning_lines) > 1 and len(answer) < 20:
-                    # If last line is too short, take last 2-3 lines
-                    answer = "\n".join(non_reasoning_lines[-min(3, len(non_reasoning_lines)):]).strip()
     
-    return answer, reasoning
+    # Strategy 3: Fallback - extract last meaningful content
+    if not answer:
+        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        
+        if lines:
+            # Try to find the last line that looks like an answer
+            # (contains a number, is short, or is after "therefore"/"so"/"thus")
+            for i in range(len(lines) - 1, -1, -1):
+                line = lines[i]
+                line_lower = line.lower()
+                
+                # Skip lines that are clearly just labels
+                if line_lower in ["reasoning:", "answer:", "steps:", "solution:"]:
+                    continue
+                
+                # Found a content line
+                # If it starts with a transition word, take what follows
+                for prefix in ["therefore,", "so,", "thus,", "hence,"]:
+                    if line_lower.startswith(prefix):
+                        answer = line[len(prefix):].strip()
+                        break
+                
+                if not answer:
+                    answer = line
+                break
+    
+    # Strategy 4: Last resort - just clean and return the text
+    if not answer:
+        # Remove common prefixes and return
+        answer = text.strip()
+        # Try to extract just the final value if text ends with a number
+        final_number = re.search(r"(\$?[\d,]+\.?\d*%?)\s*$", answer)
+        if final_number:
+            answer = final_number.group(1)
+    
+    # Clean up the answer
+    if answer:
+        # Remove trailing punctuation except for % and .
+        answer = answer.rstrip(".,;:!?")
+        if answer.endswith(".") or answer.endswith("%"):
+            pass  # Keep these
+        answer = answer.strip()
+    
+    return answer or "", reasoning
 
 
 def parse_reflector_output_to_lessons(text: str) -> List[str]:

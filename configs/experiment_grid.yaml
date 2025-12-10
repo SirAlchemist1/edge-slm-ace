@@ -1,0 +1,131 @@
+# =============================================================================
+# Experiment Grid Configuration
+# =============================================================================
+# This file defines a grid of experiments: model × task × mode × device
+# Used by scripts/run_eval_grid.py to run systematic evaluations.
+#
+# Usage:
+#   python -m scripts.run_eval_grid --config configs/experiment_grid.yaml
+#   python -m scripts.run_eval_grid --config configs/experiment_grid.yaml --dry-run
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Models to evaluate
+# -----------------------------------------------------------------------------
+models:
+  # Tiny model for smoke tests (CPU only due to Torch security restrictions)
+  - name: tiny-gpt2
+    hf_id: sshleifer/tiny-gpt2
+    max_context: 1024
+    notes: "CPU only - for smoke tests"
+    
+  # Production models (uncomment when ready)
+  # - name: phi-3-mini
+  #   hf_id: microsoft/Phi-3-mini-4k-instruct
+  #   max_context: 4096
+  #   notes: "Good balance of size and capability"
+  
+  # - name: llama-3.2-1b
+  #   hf_id: meta-llama/Llama-3.2-1B-Instruct
+  #   max_context: 4096
+  #   notes: "Smallest Llama 3.2 model"
+
+# -----------------------------------------------------------------------------
+# Tasks / Datasets
+# -----------------------------------------------------------------------------
+tasks:
+  - name: tatqa_tiny
+    task_name: tatqa_tiny
+    domain: finance
+    description: "Financial QA from TAT-QA dataset (3 examples)"
+    
+  - name: medqa_tiny
+    task_name: medqa_tiny
+    domain: medical
+    description: "Medical QA (3 examples)"
+    
+  - name: iot_tiny
+    task_name: iot_tiny
+    domain: iot
+    description: "IoT anomaly detection (5 examples)"
+
+# -----------------------------------------------------------------------------
+# Evaluation Modes
+# -----------------------------------------------------------------------------
+modes:
+  # Baseline: No playbook, vanilla prompting
+  - name: baseline
+    mode: baseline
+    description: "No ACE, vanilla prompting"
+    
+  # ACE Full: Top-k entries from playbook
+  - name: ace_full
+    mode: ace
+    ace_mode: ace_full
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    description: "ACE with top-k retrieval"
+    
+  # ACE Working Memory: Token-budgeted entries
+  - name: ace_working_memory
+    mode: ace
+    ace_mode: ace_working_memory
+    token_budget: 500
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    description: "ACE with token-budgeted working memory"
+
+# -----------------------------------------------------------------------------
+# Devices
+# -----------------------------------------------------------------------------
+# Available: cpu, cuda, mps
+# The grid runner will check availability and fall back to cpu if needed
+devices:
+  - cpu
+  # Uncomment when running on GPU
+  # - cuda
+  # - mps
+
+# -----------------------------------------------------------------------------
+# Default Settings
+# -----------------------------------------------------------------------------
+defaults:
+  # Root directory for results
+  results_root: results
+  
+  # Default limit per experiment (None = all examples)
+  # Set to small number for quick smoke tests
+  limit: null
+  
+  # Generation parameters
+  max_new_tokens: 256
+  temperature: 0.7
+  top_p: 0.95
+  
+  # Playbook settings
+  playbook_dir: playbooks
+
+# -----------------------------------------------------------------------------
+# Scoring Hyperparameters (for ACE modes)
+# -----------------------------------------------------------------------------
+# These match the formal retention scoring equation:
+# S(l_i, t) = α·(N_succ/N_used+ε) - β·(N_fail/N_used+ε) + γ·exp(-λ·(t-t_last)) - δ·V(l_i)
+scoring:
+  alpha: 1.0        # Weight for success ratio
+  beta: 0.5         # Weight for failure ratio (penalty)
+  gamma: 0.3        # Weight for recency bonus
+  delta: 0.4        # Weight for vagueness penalty
+  lambda_decay: 0.05  # Decay rate for recency
+  epsilon: 1.0      # Smoothing constant
+
+# -----------------------------------------------------------------------------
+# Output Format
+# -----------------------------------------------------------------------------
+output:
+  # Directory structure: {results_root}/{model_name}/{task_name}/{mode_name}/{device}/
+  metrics_filename: metrics.json
+  predictions_filename: predictions.jsonl
+  metadata_filename: run_metadata.json
+  playbook_filename: playbook.jsonl

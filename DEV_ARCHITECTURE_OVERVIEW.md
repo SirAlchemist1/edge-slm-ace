@@ -325,7 +325,36 @@ pytest tests/test_ace_roles.py -v
 
 ---
 
-## 10. Results Aggregation and Plotting
+## 10. Standard Experiment Run
+
+**⚠️ STANDARD RUN: Use this exact sequence for all initial experiments.**
+
+```bash
+# Step 1: Run the evaluation grid (all examples, no limit)
+python -m scripts.run_eval_grid \
+  --config configs/experiment_grid.yaml
+
+# Step 2: Aggregate results
+python -m scripts.aggregate_results
+
+# Step 3: Generate plots
+python -m scripts.plot_results
+```
+
+**Why this is the standard:**
+- Uses all available examples in each dataset (no artificial limit)
+- Runs all combinations: model × task × mode × device
+- Ensures all results are comparable across team members
+- Generates complete summary and visualizations
+
+**Only deviate if:**
+- Testing specific configurations
+- Running smoke tests (`--limit 2`)
+- Adding new models/tasks/modes to the grid
+
+---
+
+## 11. Results Aggregation and Plotting
 
 After running experiments, you can aggregate results and generate plots:
 

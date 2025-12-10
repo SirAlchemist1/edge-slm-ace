@@ -48,6 +48,37 @@ scripts/
 git clone https://github.com/SirAlchemist1/edge-slm-ace.git
 cd edge-slm-ace
 
+# Install dependencies
+pip install -r requirements.txt
+
+# Install package in editable mode
+pip install -e .
+```
+
+### Standard Experiment Run
+
+**⚠️ IMPORTANT: Use this exact command sequence for all initial experiments to ensure comparability.**
+
+```bash
+# Step 1: Run the evaluation grid (all examples, no limit)
+python -m scripts.run_eval_grid \
+  --config configs/experiment_grid.yaml
+
+# Step 2: Aggregate results
+python -m scripts.aggregate_results
+
+# Step 3: Generate plots
+python -m scripts.plot_results
+```
+
+This will:
+- Run all combinations: 1 model × 3 tasks × 3 modes × 1 device = 9 experiments
+- Use all available examples in each dataset (no limit)
+- Generate `results/summary.csv` and `results/summary.json`
+- Create plots in `results/plots/`
+
+**Note:** Only deviate from this standard run if explicitly changing the experimental setup. This ensures all results are comparable.
+
 # Create virtual environment
 python3.10 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate

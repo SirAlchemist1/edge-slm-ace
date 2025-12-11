@@ -34,6 +34,11 @@ class ScoringParams:
     delta: float = DEFAULT_DELTA      # Vagueness penalty weight
     lambda_decay: float = DEFAULT_LAMBDA  # Recency decay rate
     epsilon: float = DEFAULT_EPSILON  # Smoothing constant
+    # Ablation flags
+    disable_vagueness_penalty: bool = False  # If True, set δ=0 (ignore vagueness term)
+    disable_recency_decay: bool = False      # If True, set γ=0 (ignore recency term)
+    disable_failure_penalty: bool = False   # If True, set β=0 (ignore failure term)
+    fifo_memory: bool = False                # If True, bypass scoring entirely, use FIFO eviction
 
 
 # Generic phrases that indicate vague/unhelpful lessons
@@ -176,15 +181,26 @@ class PlaybookEntry:
         S(l_i, t) = α·(N_succ/(N_used+ε)) - β·(N_fail/(N_used+ε)) 
                   + γ·exp(-λ·(t - t_last)) - δ·V(l_i)
         
+        Ablation flags can disable individual terms:
+        - disable_vagueness_penalty: Set δ=0
+        - disable_recency_decay: Set γ=0
+        - disable_failure_penalty: Set β=0
+        - fifo_memory: Return insertion order (lower = earlier, for FIFO eviction)
+        
         Args:
             current_step: Current step counter for recency calculation.
             params: Scoring hyperparameters (uses defaults if None).
             
         Returns:
             Retention score (higher = better, should be retained).
+            If fifo_memory=True, returns negative insertion order (lower = earlier).
         """
         if params is None:
             params = ScoringParams()
+        
+        # FIFO mode: return negative creation timestamp (earlier = lower score = evicted first)
+        if params.fifo_memory:
+            return -self.created_at
         
         n_used = self.total_uses()
         
@@ -192,14 +208,26 @@ class PlaybookEntry:
         success_term = params.alpha * (self.success_count / (n_used + params.epsilon))
         
         # Failure ratio term: β · (N_fail / (N_used + ε))
-        failure_term = params.beta * (self.failure_count / (n_used + params.epsilon))
+        # Disabled if disable_failure_penalty is True
+        if params.disable_failure_penalty:
+            failure_term = 0.0
+        else:
+            failure_term = params.beta * (self.failure_count / (n_used + params.epsilon))
         
         # Recency term: γ · exp(-λ · (t - t_last))
-        age = max(0, current_step - self.last_used_at) if current_step > 0 else 0
-        recency_term = params.gamma * math.exp(-params.lambda_decay * age)
+        # Disabled if disable_recency_decay is True
+        if params.disable_recency_decay:
+            recency_term = 0.0
+        else:
+            age = max(0, current_step - self.last_used_at) if current_step > 0 else 0
+            recency_term = params.gamma * math.exp(-params.lambda_decay * age)
         
         # Vagueness penalty: δ · V(l_i)
-        vagueness_term = params.delta * self.vagueness_score
+        # Disabled if disable_vagueness_penalty is True
+        if params.disable_vagueness_penalty:
+            vagueness_term = 0.0
+        else:
+            vagueness_term = params.delta * self.vagueness_score
         
         # Final score
         return success_term - failure_term + recency_term - vagueness_term

@@ -1,5 +1,6 @@
 """Main runner for baseline and ACE-style evaluation pipelines."""
 
+import statistics
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -85,10 +86,14 @@ def run_dataset_baseline(
     predictions = []
     labels = []
     latencies = []
+    end_to_end_latencies = []  # Full query processing time
     prompt_tokens_list = []
     prompt_output_tokens_list = []
     
     for example in dataset:
+        # Track end-to-end latency (entire query processing)
+        query_start_time = time.time()
+        
         example_id = example.get("id", "unknown")
         question = example.get("question", "")
         context = example.get("context")
@@ -111,6 +116,7 @@ def run_dataset_baseline(
             top_p=config.top_p,
         )
         latency_ms = (time.time() - start_time) * 1000
+        end_to_end_latency_sec = time.time() - query_start_time
         
         # Count tokens
         prompt_tokens = count_tokens(tokenizer, prompt)
@@ -130,6 +136,7 @@ def run_dataset_baseline(
             "is_correct": 1 if correct else 0,  # Canonical correctness
             "context_tokens": context_tokens,  # For token efficiency plots
             "latency_ms": latency_ms,  # For latency plots
+            "latency_sec": end_to_end_latency_sec,  # End-to-end latency in seconds
             # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
@@ -150,6 +157,7 @@ def run_dataset_baseline(
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+        end_to_end_latencies.append(end_to_end_latency_sec)
         prompt_tokens_list.append(prompt_tokens)
         prompt_output_tokens_list.append(output_tokens)
     
@@ -157,9 +165,16 @@ def run_dataset_baseline(
     accuracy = compute_accuracy(predictions, labels)
     avg_latency = compute_average_latency(latencies)
     
+    # Compute latency statistics
+    import statistics
+    avg_latency_sec = statistics.mean(end_to_end_latencies) if end_to_end_latencies else 0.0
+    median_latency_sec = statistics.median(end_to_end_latencies) if end_to_end_latencies else 0.0
+    
     summary = {
         "accuracy": accuracy,
         "avg_latency_ms": avg_latency,
+        "avg_latency_sec": avg_latency_sec,
+        "median_latency_sec": median_latency_sec,
         "num_examples": len(dataset),
         "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list) if prompt_tokens_list else 0.0,
         "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list) if prompt_output_tokens_list else 0.0,
@@ -438,14 +453,25 @@ def run_dataset_ace(
     predictions = []
     labels = []
     latencies = []
+    end_to_end_latencies = []  # Full query processing time
     prompt_tokens_list=[]
     prompt_output_tokens_list = []
+    playbook_log = []  # Per-step playbook stats
     
     for step, example in enumerate(dataset, start=1):
+        # Track end-to-end latency (entire query processing)
+        query_start_time = time.time()
+        
         example_id = example.get("id", "unknown")
         question = example.get("question", "")
         context = example.get("context")
         ground_truth = example.get("answer", "")
+        
+        # Capture playbook state before processing
+        playbook_before = {
+            "num_entries": len(playbook.entries),
+            "total_tokens": playbook.total_tokens,
+        }
         
         # Step 1: Generator - build prompt with playbook context
         generator_prompt = build_generator_prompt(
@@ -578,8 +604,34 @@ def run_dataset_ace(
             playbook.record_feedback(entry_id, helpful=correct)
         
         # Step 6: Occasional pruning
+        num_evictions = 0
         if step % prune_every_n == 0:
+            entries_before_prune = len(playbook.entries)
             playbook.prune(max_entries_per_domain=max_entries_per_domain)
+            num_evictions = entries_before_prune - len(playbook.entries)
+        
+        # Capture playbook state after processing
+        playbook_after = {
+            "num_entries": len(playbook.entries),
+            "total_tokens": playbook.total_tokens,
+        }
+        
+        # Track evictions that happened during add_entry (working memory mode)
+        # This is approximate - we track the difference in entry count
+        entries_added = len(filtered_lessons) if should_reflect else 0
+        evictions_during_add = max(0, playbook_before["num_entries"] + entries_added - playbook_after["num_entries"])
+        total_evictions = num_evictions + evictions_during_add
+        
+        # Log playbook stats for this step
+        playbook_log.append({
+            "step_index": step,
+            "num_entries": playbook_after["num_entries"],
+            "total_tokens": playbook_after["total_tokens"],
+            "num_evictions": total_evictions,
+        })
+        
+        # Calculate end-to-end latency
+        end_to_end_latency_sec = time.time() - query_start_time
         
         # Record result with consistent schema
         result = {
@@ -591,6 +643,7 @@ def run_dataset_ace(
             "is_correct": 1 if correct else 0,
             "context_tokens": context_tokens,  # Playbook context tokens
             "latency_ms": latency_ms,
+            "latency_sec": end_to_end_latency_sec,  # End-to-end latency in seconds
             # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
@@ -615,6 +668,7 @@ def run_dataset_ace(
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+        end_to_end_latencies.append(end_to_end_latency_sec)
         prompt_tokens_list.append(prompt_tokens)
         prompt_output_tokens_list.append(output_tokens)
     
@@ -625,13 +679,23 @@ def run_dataset_ace(
     accuracy = compute_accuracy(predictions, labels)
     avg_latency = compute_average_latency(latencies)
     
+    # Compute latency statistics
+    import statistics
+    avg_latency_sec = statistics.mean(end_to_end_latencies) if end_to_end_latencies else 0.0
+    median_latency_sec = statistics.median(end_to_end_latencies) if end_to_end_latencies else 0.0
+    
     summary = {
         "accuracy": accuracy,
         "avg_latency_ms": avg_latency,
+        "avg_latency_sec": avg_latency_sec,
+        "median_latency_sec": median_latency_sec,
         "num_examples": len(dataset),
         "playbook_size": len(playbook.entries),
+        "final_playbook_num_entries": len(playbook.entries),
+        "final_playbook_total_tokens": playbook.total_tokens,
         "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list) if prompt_tokens_list else 0.0,
         "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list) if prompt_output_tokens_list else 0.0,
+        "playbook_log": playbook_log,  # Include playbook log in summary for saving
     }
     
     return results, summary

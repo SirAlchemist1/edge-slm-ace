@@ -110,6 +110,8 @@ def load_and_extract_metrics(metrics_path: Path) -> Optional[Dict[str, Any]]:
         "device_used": metrics.get("device_used") or extract_device_from_path(metrics_path),
         "accuracy": metrics.get("accuracy"),
         "avg_latency_ms": metrics.get("avg_latency_ms"),
+        "avg_latency_sec": metrics.get("avg_latency_sec"),
+        "median_latency_sec": metrics.get("median_latency_sec"),
         "num_examples": metrics.get("num_examples"),
         "limit_applied": metrics.get("limit_applied"),
         "wall_time_seconds": metrics.get("wall_time_seconds"),
@@ -118,6 +120,9 @@ def load_and_extract_metrics(metrics_path: Path) -> Optional[Dict[str, Any]]:
         "peak_memory_mb": metrics.get("peak_memory_mb"),
         "peak_gpu_memory_mb": metrics.get("peak_gpu_memory_mb"),
         "avg_semantic_similarity": metrics.get("avg_semantic_similarity"),
+        # Playbook metrics
+        "final_playbook_num_entries": metrics.get("final_playbook_num_entries"),
+        "final_playbook_total_tokens": metrics.get("final_playbook_total_tokens"),
     }
     
     # Extract token metrics (support both naming conventions)

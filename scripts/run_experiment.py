@@ -28,7 +28,9 @@ Example usage:
 """
 
 import argparse
+import csv
 import json
+import statistics
 import time
 from datetime import datetime
 from pathlib import Path
@@ -38,7 +40,7 @@ import pandas as pd
 
 from edge_slm_ace.utils.config import get_model_config, get_task_config, ModelConfig
 from edge_slm_ace.models.model_manager import load_model_and_tokenizer
-from edge_slm_ace.memory.playbook import Playbook
+from edge_slm_ace.memory.playbook import Playbook, ScoringParams
 from edge_slm_ace.core.runner import run_dataset_baseline, run_dataset_ace, run_dataset_self_refine
 from edge_slm_ace.utils.device_utils import get_device, resolve_device_override
 from edge_slm_ace.utils.metrics import PeakMemoryTracker, SemanticEvaluator
@@ -207,6 +209,28 @@ Examples:
         type=int,
         default=32,
         help="Maximum playbook entries per domain after pruning (default: 32)",
+    )
+    
+    # Ablation flags for retention scoring
+    parser.add_argument(
+        "--disable-vagueness-penalty",
+        action="store_true",
+        help="Disable vagueness penalty in retention scoring (set δ=0)",
+    )
+    parser.add_argument(
+        "--disable-recency-decay",
+        action="store_true",
+        help="Disable recency decay in retention scoring (set γ=0)",
+    )
+    parser.add_argument(
+        "--disable-failure-penalty",
+        action="store_true",
+        help="Disable failure penalty in retention scoring (set β=0)",
+    )
+    parser.add_argument(
+        "--fifo-memory",
+        action="store_true",
+        help="Use FIFO eviction instead of scoring-based eviction",
     )
     
     # Generation parameters
@@ -395,15 +419,25 @@ Examples:
                     
                     playbook_path = Path(args.playbook_path)
                     
+                    # Create scoring params with ablation flags
+                    scoring_params = ScoringParams(
+                        disable_vagueness_penalty=args.disable_vagueness_penalty,
+                        disable_recency_decay=args.disable_recency_decay,
+                        disable_failure_penalty=args.disable_failure_penalty,
+                        fifo_memory=args.fifo_memory,
+                    )
+                    
                     # Load or create playbook
                     if playbook_path.exists():
                         if not args.quiet:
                             print(f"Loading playbook from {playbook_path}")
                         playbook = Playbook.load(playbook_path, token_budget=args.token_budget)
+                        # Update scoring params
+                        playbook.scoring_params = scoring_params
                     else:
                         if not args.quiet:
                             print(f"Creating new playbook at {playbook_path}")
-                        playbook = Playbook(token_budget=args.token_budget)
+                        playbook = Playbook(token_budget=args.token_budget, scoring_params=scoring_params)
                     
                     initial_playbook_size = len(playbook.entries)
                     
@@ -432,6 +466,17 @@ Examples:
                         "domain_stats": playbook.get_stats(domain),
                     }
                     
+                    # Save playbook log if available
+                    playbook_log = summary.get("playbook_log", [])
+                    if playbook_log and args.metrics_path:
+                        playbook_log_path = Path(args.metrics_path).parent / "playbook_log.csv"
+                        with open(playbook_log_path, "w", newline="", encoding="utf-8") as f:
+                            writer = csv.DictWriter(f, fieldnames=["step_index", "num_entries", "total_tokens", "num_evictions"])
+                            writer.writeheader()
+                            writer.writerows(playbook_log)
+                        if not args.quiet:
+                            print(f"Playbook log saved to {playbook_log_path}")
+                    
                     if not args.quiet:
                         print(f"Playbook: {initial_playbook_size} → {len(playbook.entries)} entries")
                 
@@ -444,6 +489,11 @@ Examples:
         
         # Calculate wall time
         wall_time_seconds = time.time() - wall_start
+        
+        # Extract latency statistics from results
+        latencies_sec = [r.get("latency_sec", 0.0) for r in results if "latency_sec" in r]
+        avg_latency_sec = statistics.mean(latencies_sec) if latencies_sec else None
+        median_latency_sec = statistics.median(latencies_sec) if latencies_sec else None
         
         # Compute semantic similarity for each result (if ground truth available)
         semantic_evaluator = None
@@ -496,6 +546,12 @@ Examples:
             "peak_memory_mb": memory_tracker.peak_memory_mb,
             "peak_gpu_memory_mb": memory_tracker.peak_gpu_memory_mb if memory_tracker.peak_gpu_memory_mb > 0 else None,
             "avg_semantic_similarity": avg_semantic_similarity,
+            # Latency metrics
+            "avg_latency_sec": avg_latency_sec or summary.get("avg_latency_sec"),
+            "median_latency_sec": median_latency_sec or summary.get("median_latency_sec"),
+            # Playbook metrics
+            "final_playbook_num_entries": summary.get("final_playbook_num_entries"),
+            "final_playbook_total_tokens": summary.get("final_playbook_total_tokens"),
             **summary,
         }
         

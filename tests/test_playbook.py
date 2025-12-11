@@ -377,3 +377,106 @@ def test_playbook_get_top_k():
 def test_playbook_record_feedback():
     """Test recording feedback for entries."""
     TestPlaybook().test_record_feedback_only_for_used_entries()
+
+
+class TestAblationFlags:
+    """Tests for retention scoring ablation flags."""
+    
+    def test_disable_vagueness_penalty(self):
+        """When disable_vagueness_penalty=True, vagueness term should be zero."""
+        entry = PlaybookEntry(
+            id="1",
+            domain="test",
+            text="Think carefully",  # Vague text
+            success_count=1,
+            failure_count=0,
+            last_used_at=0,
+        )
+        
+        # With vagueness penalty enabled (default)
+        params_default = ScoringParams()
+        score_with_penalty = entry.score(current_step=1, params=params_default)
+        
+        # With vagueness penalty disabled
+        params_no_vagueness = ScoringParams(disable_vagueness_penalty=True)
+        score_without_penalty = entry.score(current_step=1, params=params_no_vagueness)
+        
+        # Score without penalty should be higher (less negative)
+        assert score_without_penalty > score_with_penalty, \
+            "Disabling vagueness penalty should increase score"
+    
+    def test_disable_recency_decay(self):
+        """When disable_recency_decay=True, recency term should be zero."""
+        entry = PlaybookEntry(
+            id="1",
+            domain="test",
+            text="Test lesson",
+            success_count=1,
+            failure_count=0,
+            last_used_at=0,  # Used at step 0
+        )
+        
+        # With recency enabled (default), recent entries get bonus
+        params_default = ScoringParams()
+        score_recent = entry.score(current_step=1, params=params_default)  # Recent
+        
+        # With recency disabled
+        params_no_recency = ScoringParams(disable_recency_decay=True)
+        score_no_recency = entry.score(current_step=1, params=params_no_recency)
+        
+        # Score without recency should be lower (no recency bonus)
+        assert score_no_recency < score_recent, \
+            "Disabling recency should remove recency bonus"
+    
+    def test_disable_failure_penalty(self):
+        """When disable_failure_penalty=True, failure term should be zero."""
+        entry = PlaybookEntry(
+            id="1",
+            domain="test",
+            text="Test lesson",
+            success_count=1,
+            failure_count=2,  # Has failures
+            last_used_at=0,
+        )
+        
+        # With failure penalty enabled (default)
+        params_default = ScoringParams()
+        score_with_penalty = entry.score(current_step=1, params=params_default)
+        
+        # With failure penalty disabled
+        params_no_failure = ScoringParams(disable_failure_penalty=True)
+        score_without_penalty = entry.score(current_step=1, params=params_no_failure)
+        
+        # Score without penalty should be higher (no failure penalty)
+        assert score_without_penalty > score_with_penalty, \
+            "Disabling failure penalty should increase score"
+    
+    def test_fifo_memory(self):
+        """When fifo_memory=True, scoring should return insertion order."""
+        # Create entries at different times
+        import time
+        entry1 = PlaybookEntry(
+            id="1",
+            domain="test",
+            text="First entry",
+            created_at=time.time() - 10,  # Older
+        )
+        entry2 = PlaybookEntry(
+            id="2",
+            domain="test",
+            text="Second entry",
+            created_at=time.time(),  # Newer
+        )
+        
+        params_fifo = ScoringParams(fifo_memory=True)
+        
+        score1 = entry1.score(current_step=1, params=params_fifo)
+        score2 = entry2.score(current_step=1, params=params_fifo)
+        
+        # Older entry should have lower score (evicted first)
+        assert score1 < score2, \
+            "In FIFO mode, older entries should have lower scores"
+        
+        # Scores should be negative (based on negative created_at)
+        assert score1 < 0 and score2 < 0, \
+            "FIFO scores should be negative (negative created_at)"

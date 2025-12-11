@@ -257,6 +257,12 @@ def main() -> int:
     # Plot 4: Semantic Similarity by Mode (Quality Story)
     plot_semantic_similarity_by_mode(df, output_dir / "semantic_similarity_by_mode.png")
     
+    # Plot 5: Playbook growth (if data available)
+    plot_playbook_growth(df, output_dir / "playbook_growth.png")
+    
+    # Plot 6: Evictions by mode (if data available)
+    plot_evictions_by_mode(df, output_dir / "evictions_by_mode.png")
+    
     print(f"\nPlots saved to {output_dir}/")
     
     return 0
@@ -372,6 +378,61 @@ def plot_semantic_similarity_by_mode(
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"Saved plot: {output_path}")
+
+
+def plot_playbook_growth(
+    df: pd.DataFrame,
+    output_path: Path,
+    figsize: tuple = (10, 6),
+) -> None:
+    """
+    Plot playbook growth over steps (num_entries vs step_index).
+    
+    This function reads playbook_log.csv files from result directories.
+    For now, it's a placeholder that logs a TODO.
+    
+    TODO: Implement reading playbook_log.csv from result directories
+    and plotting step_index vs num_entries for each run/mode.
+    
+    Args:
+        df: DataFrame with aggregated metrics (may not have playbook log data).
+        output_path: Path to save the plot.
+        figsize: Figure size tuple.
+    """
+    # TODO: Implement playbook growth plotting
+    # This would require reading playbook_log.csv files from each run directory
+    # and aggregating them by mode/model/task
+    print(f"TODO: plot_playbook_growth() - Implement reading playbook_log.csv files")
+    print(f"  Expected: Read playbook_log.csv from results/{model}/{task}/{mode}/{device}/")
+    print(f"  Plot: step_index vs num_entries, grouped by mode")
+    return
+
+
+def plot_evictions_by_mode(
+    df: pd.DataFrame,
+    output_path: Path,
+    figsize: tuple = (10, 6),
+) -> None:
+    """
+    Plot total evictions by mode (bar chart).
+    
+    This function would aggregate eviction counts from playbook logs.
+    For now, it's a placeholder that logs a TODO.
+    
+    TODO: Implement reading playbook_log.csv files and summing num_evictions
+    per mode/model/task combination.
+    
+    Args:
+        df: DataFrame with aggregated metrics.
+        output_path: Path to save the plot.
+        figsize: Figure size tuple.
+    """
+    # TODO: Implement evictions plotting
+    # This would require reading playbook_log.csv files and summing num_evictions
+    print(f"TODO: plot_evictions_by_mode() - Implement reading playbook_log.csv files")
+    print(f"  Expected: Sum num_evictions from playbook_log.csv per mode")
+    print(f"  Plot: Bar chart of total evictions by mode")
+    return
 
 
 if __name__ == "__main__":

@@ -120,10 +120,15 @@ def load_and_extract_metrics(metrics_path: Path) -> Optional[Dict[str, Any]]:
         "peak_memory_mb": metrics.get("peak_memory_mb"),
         "peak_gpu_memory_mb": metrics.get("peak_gpu_memory_mb"),
         "avg_semantic_similarity": metrics.get("avg_semantic_similarity"),
-        # Playbook metrics
-        "final_playbook_num_entries": metrics.get("final_playbook_num_entries"),
+        # Playbook metrics (check both top-level and nested playbook object)
+        "final_playbook_num_entries": metrics.get("final_playbook_num_entries") or metrics.get("playbook_size"),
         "final_playbook_total_tokens": metrics.get("final_playbook_total_tokens"),
     }
+    
+    # Derive effective mode label for plotting (combine mode + ace_mode)
+    # This creates cleaner labels: "baseline", "ace_full", "ace_working_memory", etc.
+    effective_mode = row["ace_mode"] if row["ace_mode"] else row["mode"]
+    row["effective_mode"] = effective_mode
     
     # Extract token metrics (support both naming conventions)
     if "mean_prompt_token" in metrics:
@@ -217,10 +222,8 @@ def print_summary_table(df: pd.DataFrame) -> None:
         print("No data to display")
         return
     
-    # Select columns to display
-    display_cols = ["model_id", "task_name", "mode", "accuracy"]
-    if "ace_mode" in df.columns:
-        display_cols.insert(3, "ace_mode")
+    # Select columns to display (use effective_mode for cleaner output)
+    display_cols = ["model_id", "task_name", "effective_mode", "accuracy", "avg_latency_ms", "peak_memory_mb"]
     if "device_used" in df.columns:
         display_cols.append("device_used")
     
@@ -234,11 +237,23 @@ def print_summary_table(df: pd.DataFrame) -> None:
             lambda x: f"{x:.3f}" if pd.notna(x) else "N/A"
         )
     
-    print("\n" + "=" * 80)
+    # Format latency
+    if "avg_latency_ms" in display_df.columns:
+        display_df["avg_latency_ms"] = display_df["avg_latency_ms"].apply(
+            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+        )
+    
+    # Format memory
+    if "peak_memory_mb" in display_df.columns:
+        display_df["peak_memory_mb"] = display_df["peak_memory_mb"].apply(
+            lambda x: f"{x:.1f}" if pd.notna(x) else "N/A"
+        )
+    
+    print("\n" + "=" * 100)
     print("Summary Table")
-    print("=" * 80)
+    print("=" * 100)
     print(display_df.to_string(index=False))
-    print("=" * 80 + "\n")
+    print("=" * 100 + "\n")
 
 
 def main() -> int:

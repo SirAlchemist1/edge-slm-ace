@@ -153,45 +153,125 @@ def run_experiment(
     output_dir: Path,
     dry_run: bool = False,
     verbose: bool = True,
+    show_progress: bool = True,
 ) -> Tuple[bool, Optional[str]]:
     """
     Run a single experiment.
-    
+
     Args:
         cmd: Command to run.
         output_dir: Output directory for the experiment.
         dry_run: If True, just print the command without running.
         verbose: If True, print progress information.
-        
+        show_progress: If True, show live output from the experiment.
+
     Returns:
         Tuple of (success, error_message).
     """
     if dry_run:
         print(f"  [DRY RUN] Would run: {' '.join(cmd)}")
         return True, None
-    
+
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
+    # Create log files
+    stdout_log = output_dir / "stdout.log"
+    stderr_log = output_dir / "stderr.log"
+    combined_log = output_dir / "combined.log"
+
     # Run the experiment
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=3600,  # 1 hour timeout
-        )
-        
+        if show_progress:
+            # Stream output to terminal AND capture to logs
+            # Open log files for writing
+            with open(stdout_log, "w", encoding="utf-8") as stdout_f, \
+                 open(stderr_log, "w", encoding="utf-8") as stderr_f, \
+                 open(combined_log, "w", encoding="utf-8") as combined_f:
+
+                # Run with streaming output
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,  # Line buffered
+                )
+
+                import threading
+
+                # Thread to read stdout
+                def read_stdout():
+                    for line in process.stdout:
+                        print(line, end='')  # Print to terminal
+                        stdout_f.write(line)  # Write to stdout log
+                        combined_f.write(line)  # Write to combined log
+                        stdout_f.flush()
+                        combined_f.flush()
+
+                # Thread to read stderr
+                def read_stderr():
+                    for line in process.stderr:
+                        print(line, end='', file=sys.stderr)  # Print to terminal
+                        stderr_f.write(line)  # Write to stderr log
+                        combined_f.write(line)  # Write to combined log
+                        stderr_f.flush()
+                        combined_f.flush()
+
+                # Start threads
+                stdout_thread = threading.Thread(target=read_stdout)
+                stderr_thread = threading.Thread(target=read_stderr)
+                stdout_thread.start()
+                stderr_thread.start()
+
+                # Wait for process to complete
+                returncode = process.wait()
+
+                # Wait for threads to finish
+                stdout_thread.join()
+                stderr_thread.join()
+
+                combined_f.write(f"\n\n=== EXIT CODE: {returncode} ===\n")
+
+                if returncode == 0:
+                    return True, None
+                else:
+                    return False, f"Exit code: {returncode} (logs: {combined_log})"
+        else:
+            # Original behavior: capture all output
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+            )
+
+        # Save logs to files
+        with open(stdout_log, "w", encoding="utf-8") as f:
+            f.write(result.stdout)
+
+        with open(stderr_log, "w", encoding="utf-8") as f:
+            f.write(result.stderr)
+
+        with open(combined_log, "w", encoding="utf-8") as f:
+            f.write("=== STDOUT ===\n")
+            f.write(result.stdout)
+            f.write("\n\n=== STDERR ===\n")
+            f.write(result.stderr)
+            f.write(f"\n\n=== EXIT CODE: {result.returncode} ===\n")
+
         if result.returncode == 0:
             return True, None
         else:
             error_msg = result.stderr or result.stdout or f"Exit code: {result.returncode}"
-            return False, error_msg
-            
-    except subprocess.TimeoutExpired:
-        return False, "Experiment timed out after 1 hour"
+            # Truncate error message but mention log file
+            error_preview = error_msg[:500] + "..." if len(error_msg) > 500 else error_msg
+            return False, f"{error_preview}\n(Full logs saved to {combined_log})"
+
     except Exception as e:
-        return False, str(e)
+        # Save exception to logs
+        with open(combined_log, "w", encoding="utf-8") as f:
+            f.write(f"=== EXCEPTION ===\n{str(e)}\n")
+        return False, f"{str(e)} (logs: {combined_log})"
 
 
 def main() -> int:
@@ -222,6 +302,17 @@ def main() -> int:
         "--verbose",
         action="store_true",
         help="Print detailed progress information",
+    )
+    parser.add_argument(
+        "--show-progress",
+        action="store_true",
+        default=True,
+        help="Show live progress from experiments (default: True)",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable live progress output (only save to logs)",
     )
     parser.add_argument(
         "--skip-unavailable-devices",
@@ -339,11 +430,13 @@ def main() -> int:
                         print(f"  Output: {output_dir}")
                     
                     # Run experiment
+                    show_progress = args.show_progress and not args.no_progress
                     success, error_msg = run_experiment(
                         cmd=cmd,
                         output_dir=output_dir,
                         dry_run=args.dry_run,
                         verbose=args.verbose,
+                        show_progress=show_progress,
                     )
                     
                     if success:

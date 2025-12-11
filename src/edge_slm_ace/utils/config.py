@@ -98,21 +98,31 @@ def get_model_config(model_id_or_key: str) -> ModelConfig:
 
 # Task registry: maps task names to dataset paths and domains
 # Available tasks:
-#   - tatqa_tiny: Finance QA (3 examples)
-#   - medqa_tiny: Medical QA (3 examples)
-#   - iot_tiny: IoT/Anomaly Detection (5 examples)
+#   - medqa_train: Medical QA training set (full MedQA dataset)
+#   - math_train: Math word problems training set
+#   - sciq_train: Science QA training set (11,679 examples)
+#   - sciq_val: Science QA validation set (1,000 examples)
+#   - sciq_test: Science QA test set (1,000 examples)
 TASK_CONFIGS: Dict[str, Dict[str, str]] = {
-    "tatqa_tiny": {
-        "path": "data/tasks/tatqa_tiny.json",
-        "domain": "finance",
-    },
-    "medqa_tiny": {
-        "path": "data/tasks/medqa_tiny.json",
+    "medqa_train": {
+        "path": "data/tasks/train_med.jsonl",
         "domain": "medical",
     },
-    "iot_tiny": {
-        "path": "data/tasks/iot_tiny.json",
-        "domain": "iot",
+    "math_train": {
+        "path": "data/tasks/test_math.jsonl",
+        "domain": "math",
+    },
+    "sciq_train": {
+        "path": "data/tasks/sciq_train.jsonl",
+        "domain": "science",
+    },
+    "sciq_val": {
+        "path": "data/tasks/sciq_val.jsonl",
+        "domain": "science",
+    },
+    "sciq_test": {
+        "path": "data/tasks/sciq_test.jsonl",
+        "domain": "science",
     },
 }
 

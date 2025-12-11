@@ -87,8 +87,10 @@ def run_dataset_baseline(
     latencies = []
     prompt_tokens_list = []
     prompt_output_tokens_list = []
-    
-    for example in dataset:
+
+    total_examples = len(dataset)
+
+    for idx, example in enumerate(dataset, start=1):
         example_id = example.get("id", "unknown")
         question = example.get("question", "")
         context = example.get("context")
@@ -119,7 +121,21 @@ def run_dataset_baseline(
         
         # Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
-        
+
+        # Compute semantic score and BLEU score for metrics
+        try:
+            semantic_score = semantic_answer_score(answer, ground_truth)
+        except Exception:
+            semantic_score = 0.0
+
+        try:
+            bleu_score = compute_bleu_score(answer, ground_truth)
+        except Exception:
+            bleu_score = 0.0
+
+        # Progress output
+        print(f"[{idx}/{total_examples}] latency={latency_ms:.0f}ms correct={correct}")
+
         # Record result with consistent schema
         result = {
             # Canonical columns (for plotting pipeline)
@@ -144,6 +160,8 @@ def run_dataset_baseline(
             # Additional fields for debugging
             "question": question,
             "context": context or "",
+            "semantic_score": semantic_score,
+            "bleu_score": bleu_score,
         }
         results.append(result)
         
@@ -207,8 +225,10 @@ def run_dataset_self_refine(
     predictions = []
     labels = []
     latencies = []
-    
-    for example in dataset:
+
+    total_examples = len(dataset)
+
+    for idx, example in enumerate(dataset, start=1):
         example_id = example.get("id", "unknown")
         question = example.get("question", "")
         context = example.get("context")
@@ -296,7 +316,21 @@ def run_dataset_self_refine(
         
         # Check correctness
         correct = final_answer.strip().lower() == ground_truth.strip().lower()
-        
+
+        # Compute semantic score and BLEU score for metrics
+        try:
+            semantic_score = semantic_answer_score(final_answer, ground_truth)
+        except Exception:
+            semantic_score = 0.0
+
+        try:
+            bleu_score = compute_bleu_score(final_answer, ground_truth)
+        except Exception:
+            bleu_score = 0.0
+
+        # Progress output
+        print(f"[{idx}/{total_examples}] latency={total_latency_ms:.0f}ms correct={correct}")
+
         # Record result with canonical format
         result = {
             # Canonical columns (for plotting pipeline)
@@ -320,9 +354,11 @@ def run_dataset_self_refine(
             "output_tokens": output_tokens,
             "question": question,
             "context": context or "",
+            "semantic_score": semantic_score,
+            "bleu_score": bleu_score,
         }
         results.append(result)
-        
+
         predictions.append(final_answer)
         labels.append(ground_truth)
         latencies.append(total_latency_ms)
@@ -495,7 +531,10 @@ def run_dataset_ace(
         
         # Step 3: Check correctness
         correct = answer.strip().lower() == ground_truth.strip().lower()
-        
+
+        # Progress output (before reflection to show immediate feedback)
+        print(f"[{step}/{len(dataset)}] latency={latency_ms:.0f}ms correct={correct}")
+
         # Compute semantic score and BLEU score for metrics
         try:
             score = semantic_answer_score(answer, ground_truth)

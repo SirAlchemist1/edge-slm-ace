@@ -46,12 +46,21 @@ from edge_slm_ace.utils.metrics import PeakMemoryTracker, SemanticEvaluator
 
 def load_dataset(path: Path) -> List[Dict]:
     """
-    Load a dataset from a JSON file.
-    
+    Load a dataset from a JSON or JSONL file.
+
     Expected format: list of dicts with keys: id, question, answer, (optional) context, domain.
+
+    Supports:
+    - .json: JSON array format [{...}, {...}]
+    - .jsonl: JSON Lines format (one object per line)
     """
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        if path.suffix.lower() == ".jsonl":
+            # JSONL: one JSON object per line
+            return [json.loads(line.strip()) for line in f if line.strip()]
+        else:
+            # JSON: standard array format
+            return json.load(f)
 
 
 def save_metrics(metrics: Dict[str, Any], path: Path) -> None:
@@ -475,7 +484,7 @@ Examples:
         output_path = Path(args.output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         df = pd.DataFrame(results)
-        df.to_csv(output_path, index=False)
+        df.to_csv(output_path, index=False, encoding='utf-8')
         if not args.quiet:
             print(f"Results saved to {output_path}")
         

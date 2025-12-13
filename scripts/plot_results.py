@@ -343,7 +343,7 @@ Examples:
     results_root = Path(args.results_root)
     
     # Determine which plots to generate
-    all_plots = ["accuracy", "model_mode", "memory", "semantic", "latency", "playbook", "evictions", "combined"]
+    all_plots = ["accuracy", "model_mode", "memory", "semantic", "latency", "playbook", "evictions", "combined", "oma", "gom", "acr"]
     plots_to_generate = args.plots if args.plots else all_plots
     
     # Generate plots
@@ -383,6 +383,18 @@ Examples:
     # Plot 8: Combined figure for paper
     if "combined" in plots_to_generate:
         plot_combined_accuracy_memory_latency(df, output_dir / "combined_metrics.png")
+    
+    # Plot 9: MCQ Option-Mapped Accuracy (SciQ tasks)
+    if "oma" in plots_to_generate:
+        plot_oma_accuracy_by_mode(df, output_dir / "oma_accuracy_by_mode.png")
+    
+    # Plot 10: MCQ Gold Option Margin (SciQ tasks)
+    if "gom" in plots_to_generate:
+        plot_avg_gom_by_mode(df, output_dir / "avg_gom_by_mode.png")
+    
+    # Plot 11: MCQ Answerable Choice Rate (SciQ tasks)
+    if "acr" in plots_to_generate:
+        plot_acr_rate_by_mode(df, output_dir / "acr_rate_by_mode.png")
     
     print(f"\nPlots saved to {output_dir}/")
     
@@ -765,6 +777,245 @@ def plot_evictions_by_mode(
             bar.get_x() + bar.get_width() / 2.0,
             height,
             f"{int(height)}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+        )
+    
+    plt.tight_layout()
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved plot: {output_path}")
+
+
+# =============================================================================
+# MCQ-specific plots (for SciQ tasks)
+# =============================================================================
+
+def plot_oma_accuracy_by_mode(
+    df: pd.DataFrame,
+    output_path: Path,
+    figsize: tuple = (10, 6),
+) -> None:
+    """
+    Plot Option-Mapped Accuracy (OMA) by mode for SciQ tasks.
+    
+    OMA measures how well the model's free-form answers map to the correct
+    multiple choice option via semantic similarity.
+    
+    Args:
+        df: DataFrame with columns: mode, oma_accuracy
+        output_path: Path to save the plot.
+        figsize: Figure size tuple.
+    """
+    if "oma_accuracy" not in df.columns:
+        print("Info: 'oma_accuracy' column not found. Skipping OMA plot.", file=sys.stderr)
+        return
+    
+    # Filter to rows with valid OMA
+    plot_df = df[df["oma_accuracy"].notna()].copy()
+    
+    if len(plot_df) == 0:
+        print("Info: No valid OMA data. Skipping OMA plot.", file=sys.stderr)
+        return
+    
+    # Use effective_mode if available
+    if "effective_mode" in plot_df.columns:
+        plot_df["plot_mode"] = plot_df["effective_mode"]
+    elif "ace_mode" in plot_df.columns:
+        plot_df["plot_mode"] = plot_df.apply(
+            lambda r: r["ace_mode"] if pd.notna(r.get("ace_mode")) else r.get("mode", "unknown"),
+            axis=1
+        )
+    else:
+        plot_df["plot_mode"] = plot_df.get("mode", "unknown")
+    
+    # Group by mode and compute mean OMA
+    mode_oma = plot_df.groupby("plot_mode")["oma_accuracy"].mean()
+    
+    # Sort modes by predefined order
+    sorted_modes = [m for m in MODE_ORDER if m in mode_oma.index]
+    sorted_modes += [m for m in mode_oma.index if m not in sorted_modes]
+    mode_oma = mode_oma.reindex(sorted_modes)
+    
+    fig, ax = plt.subplots(figsize=figsize)
+    x_labels = [normalize_mode_label(m) for m in mode_oma.index]
+    bars = ax.bar(x_labels, mode_oma.values, alpha=0.7, color=plt.cm.Set2(range(len(x_labels))))
+    
+    ax.set_ylabel("Option-Mapped Accuracy (OMA)", fontsize=12)
+    ax.set_xlabel("Mode", fontsize=12)
+    ax.set_title("MCQ Option-Mapped Accuracy by Mode (SciQ)", fontsize=14)
+    ax.set_ylim(0, max(1.0, mode_oma.max() * 1.1) if mode_oma.max() > 0 else 1.0)
+    ax.grid(axis="y", alpha=0.3)
+    plt.xticks(rotation=45, ha="right")
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            height,
+            f"{height:.3f}",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+        )
+    
+    plt.tight_layout()
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved plot: {output_path}")
+
+
+def plot_avg_gom_by_mode(
+    df: pd.DataFrame,
+    output_path: Path,
+    figsize: tuple = (10, 6),
+) -> None:
+    """
+    Plot Average Gold Option Margin (GOM) by mode for SciQ tasks.
+    
+    GOM measures the margin between semantic similarity to the gold option
+    versus the average similarity to distractor options. Higher is better.
+    
+    Args:
+        df: DataFrame with columns: mode, avg_gom
+        output_path: Path to save the plot.
+        figsize: Figure size tuple.
+    """
+    if "avg_gom" not in df.columns:
+        print("Info: 'avg_gom' column not found. Skipping GOM plot.", file=sys.stderr)
+        return
+    
+    # Filter to rows with valid GOM
+    plot_df = df[df["avg_gom"].notna()].copy()
+    
+    if len(plot_df) == 0:
+        print("Info: No valid GOM data. Skipping GOM plot.", file=sys.stderr)
+        return
+    
+    # Use effective_mode if available
+    if "effective_mode" in plot_df.columns:
+        plot_df["plot_mode"] = plot_df["effective_mode"]
+    elif "ace_mode" in plot_df.columns:
+        plot_df["plot_mode"] = plot_df.apply(
+            lambda r: r["ace_mode"] if pd.notna(r.get("ace_mode")) else r.get("mode", "unknown"),
+            axis=1
+        )
+    else:
+        plot_df["plot_mode"] = plot_df.get("mode", "unknown")
+    
+    # Group by mode and compute mean GOM
+    mode_gom = plot_df.groupby("plot_mode")["avg_gom"].mean()
+    
+    # Sort modes by predefined order
+    sorted_modes = [m for m in MODE_ORDER if m in mode_gom.index]
+    sorted_modes += [m for m in mode_gom.index if m not in sorted_modes]
+    mode_gom = mode_gom.reindex(sorted_modes)
+    
+    fig, ax = plt.subplots(figsize=figsize)
+    x_labels = [normalize_mode_label(m) for m in mode_gom.index]
+    
+    # Use different colors for positive/negative margins
+    colors = ['#4CAF50' if v >= 0 else '#F44336' for v in mode_gom.values]
+    bars = ax.bar(x_labels, mode_gom.values, alpha=0.7, color=colors)
+    
+    ax.set_ylabel("Average Gold Option Margin (GOM)", fontsize=12)
+    ax.set_xlabel("Mode", fontsize=12)
+    ax.set_title("MCQ Gold Option Margin by Mode (SciQ)", fontsize=14)
+    ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
+    ax.grid(axis="y", alpha=0.3)
+    plt.xticks(rotation=45, ha="right")
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        va = "bottom" if height >= 0 else "top"
+        ax.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            height,
+            f"{height:.3f}",
+            ha="center",
+            va=va,
+            fontsize=10,
+        )
+    
+    plt.tight_layout()
+    
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    print(f"Saved plot: {output_path}")
+
+
+def plot_acr_rate_by_mode(
+    df: pd.DataFrame,
+    output_path: Path,
+    figsize: tuple = (10, 6),
+) -> None:
+    """
+    Plot Answerable Choice Rate (ACR) by mode for SciQ tasks.
+    
+    ACR measures how often the model outputs a clear choice marker (A/B/C/D)
+    in its response, indicating format adherence.
+    
+    Args:
+        df: DataFrame with columns: mode, acr_rate
+        output_path: Path to save the plot.
+        figsize: Figure size tuple.
+    """
+    if "acr_rate" not in df.columns:
+        print("Info: 'acr_rate' column not found. Skipping ACR plot.", file=sys.stderr)
+        return
+    
+    # Filter to rows with valid ACR
+    plot_df = df[df["acr_rate"].notna()].copy()
+    
+    if len(plot_df) == 0:
+        print("Info: No valid ACR data. Skipping ACR plot.", file=sys.stderr)
+        return
+    
+    # Use effective_mode if available
+    if "effective_mode" in plot_df.columns:
+        plot_df["plot_mode"] = plot_df["effective_mode"]
+    elif "ace_mode" in plot_df.columns:
+        plot_df["plot_mode"] = plot_df.apply(
+            lambda r: r["ace_mode"] if pd.notna(r.get("ace_mode")) else r.get("mode", "unknown"),
+            axis=1
+        )
+    else:
+        plot_df["plot_mode"] = plot_df.get("mode", "unknown")
+    
+    # Group by mode and compute mean ACR
+    mode_acr = plot_df.groupby("plot_mode")["acr_rate"].mean()
+    
+    # Sort modes by predefined order
+    sorted_modes = [m for m in MODE_ORDER if m in mode_acr.index]
+    sorted_modes += [m for m in mode_acr.index if m not in sorted_modes]
+    mode_acr = mode_acr.reindex(sorted_modes)
+    
+    fig, ax = plt.subplots(figsize=figsize)
+    x_labels = [normalize_mode_label(m) for m in mode_acr.index]
+    bars = ax.bar(x_labels, mode_acr.values, alpha=0.7, color=plt.cm.Set3(range(len(x_labels))))
+    
+    ax.set_ylabel("Answerable Choice Rate (ACR)", fontsize=12)
+    ax.set_xlabel("Mode", fontsize=12)
+    ax.set_title("MCQ Format Adherence by Mode (SciQ)", fontsize=14)
+    ax.set_ylim(0, max(1.0, mode_acr.max() * 1.1) if mode_acr.max() > 0 else 1.0)
+    ax.grid(axis="y", alpha=0.3)
+    plt.xticks(rotation=45, ha="right")
+    
+    # Add value labels on bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            height,
+            f"{height:.3f}",
             ha="center",
             va="bottom",
             fontsize=10,

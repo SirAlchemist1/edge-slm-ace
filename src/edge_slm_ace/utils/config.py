@@ -101,6 +101,8 @@ def get_model_config(model_id_or_key: str) -> ModelConfig:
 #   - tatqa_tiny: Finance QA (3 examples)
 #   - medqa_tiny: Medical QA (3 examples)
 #   - iot_tiny: IoT/Anomaly Detection (5 examples)
+#   - sciq_tiny: Science MCQ (5 examples) - for MCQ-aware evaluation
+#   - sciq_test: Science MCQ (5 examples) - alias for testing
 TASK_CONFIGS: Dict[str, Dict[str, str]] = {
     "tatqa_tiny": {
         "path": "data/tasks/tatqa_tiny.json",
@@ -113,6 +115,14 @@ TASK_CONFIGS: Dict[str, Dict[str, str]] = {
     "iot_tiny": {
         "path": "data/tasks/iot_tiny.json",
         "domain": "iot",
+    },
+    "sciq_tiny": {
+        "path": "data/tasks/sciq_tiny.json",
+        "domain": "science",
+    },
+    "sciq_test": {
+        "path": "data/tasks/sciq_tiny.json",
+        "domain": "science",
     },
 }
 

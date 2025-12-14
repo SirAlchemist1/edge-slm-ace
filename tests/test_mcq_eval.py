@@ -272,6 +272,161 @@ class TestMCQEvaluator:
         MCQEvaluator._semantic_model = None
 
 
+class TestExtractMCQOptionsWithIndices:
+    """Tests for extracting options with indices format."""
+    
+    def test_new_format_extraction(self):
+        """Test extraction from new format (options list + gold_option_idx)."""
+        from edge_slm_ace.utils.mcq_eval import extract_mcq_options_with_indices
+        
+        example = {
+            "question": "What is H2O?",
+            "options": ["water", "oxygen", "hydrogen", "carbon"],
+            "gold_option_idx": 0,
+            "answer": "water",
+        }
+        
+        options, gold_idx = extract_mcq_options_with_indices(example)
+        
+        assert isinstance(options, list)
+        assert len(options) == 4
+        assert options[0] == "water"
+        assert gold_idx == 0
+    
+    def test_legacy_format_extraction(self):
+        """Test extraction from legacy format (correct_answer + distractors)."""
+        from edge_slm_ace.utils.mcq_eval import extract_mcq_options_with_indices
+        
+        example = {
+            "correct_answer": "water",
+            "distractor1": "oxygen",
+            "distractor2": "hydrogen",
+            "distractor3": "carbon",
+        }
+        
+        options, gold_idx = extract_mcq_options_with_indices(example)
+        
+        assert isinstance(options, list)
+        assert len(options) == 4
+        assert options[0] == "water"  # Correct answer placed at index 0
+        assert gold_idx == 0
+    
+    def test_invalid_format_raises_error(self):
+        """Test that invalid format raises ValueError."""
+        from edge_slm_ace.utils.mcq_eval import extract_mcq_options_with_indices
+        
+        example = {"question": "test", "answer": "test"}
+        
+        with pytest.raises(ValueError):
+            extract_mcq_options_with_indices(example)
+
+
+class TestBuildPromptWithChoices:
+    """Tests for prompt building with choices."""
+    
+    def test_prompt_with_choices(self):
+        """Test prompt includes choices when options provided."""
+        from edge_slm_ace.utils.mcq_eval import build_prompt_with_choices
+        
+        options = ["water", "oxygen", "hydrogen", "carbon"]
+        prompt = build_prompt_with_choices(
+            question="What is H2O?",
+            context="H2O is a chemical compound.",
+            options=options,
+        )
+        
+        assert "(A) water" in prompt
+        assert "(B) oxygen" in prompt
+        assert "(C) hydrogen" in prompt
+        assert "(D) carbon" in prompt
+        assert "Answer with the exact choice text" in prompt
+    
+    def test_prompt_without_choices(self):
+        """Test prompt without options doesn't include choices."""
+        from edge_slm_ace.utils.mcq_eval import build_prompt_with_choices
+        
+        prompt = build_prompt_with_choices(
+            question="What is 2+2?",
+            context="Basic math.",
+        )
+        
+        assert "(A)" not in prompt
+        assert "Choices:" not in prompt
+        assert "Answer:" in prompt
+
+
+class TestEvaluateMCQWithIndices:
+    """Tests for MCQ evaluation with option indices."""
+    
+    def test_evaluate_correct_prediction(self):
+        """Test evaluation when prediction matches gold option."""
+        from edge_slm_ace.utils.mcq_eval import evaluate_mcq_with_indices, MCQEvaluator
+        
+        # Reset singleton for testing
+        MCQEvaluator._instance = None
+        MCQEvaluator._semantic_model = None
+        
+        # Create evaluator with mocked _load_model
+        with patch.object(MCQEvaluator, '_load_model'):
+            evaluator = MCQEvaluator.get_instance()
+        
+        # Mock compute_similarities - option 0 (gold) should be highest
+        def mock_compute_sims(prediction, option_texts):
+            return np.array([0.9, 0.2, 0.3, 0.1])  # Option 0 has highest sim
+        
+        evaluator.compute_similarities = MagicMock(side_effect=mock_compute_sims)
+        
+        options = ["water", "oxygen", "hydrogen", "carbon"]
+        result = evaluate_mcq_with_indices(
+            prediction="The answer is water",
+            options=options,
+            gold_option_idx=0,
+            evaluator=evaluator,
+        )
+        
+        assert result["chosen_option_idx"] == 0
+        assert result["oma_correct"] == 1
+        assert result["gom"] > 0  # Positive margin
+        
+        # Clean up
+        MCQEvaluator._instance = None
+        MCQEvaluator._semantic_model = None
+    
+    def test_evaluate_incorrect_prediction(self):
+        """Test evaluation when prediction matches wrong option."""
+        from edge_slm_ace.utils.mcq_eval import evaluate_mcq_with_indices, MCQEvaluator
+        
+        # Reset singleton for testing
+        MCQEvaluator._instance = None
+        MCQEvaluator._semantic_model = None
+        
+        # Create evaluator with mocked _load_model
+        with patch.object(MCQEvaluator, '_load_model'):
+            evaluator = MCQEvaluator.get_instance()
+        
+        # Mock compute_similarities - option 1 (wrong) should be highest
+        def mock_compute_sims(prediction, option_texts):
+            return np.array([0.3, 0.95, 0.2, 0.1])  # Option 1 has highest sim
+        
+        evaluator.compute_similarities = MagicMock(side_effect=mock_compute_sims)
+        
+        options = ["water", "ice", "steam", "vapor"]
+        result = evaluate_mcq_with_indices(
+            prediction="I think it's ice",
+            options=options,
+            gold_option_idx=0,  # Gold is 0, but prediction maps to 1
+            evaluator=evaluator,
+        )
+        
+        assert result["chosen_option_idx"] == 1
+        assert result["oma_correct"] == 0
+        assert result["gom"] < 0  # Negative margin since gold wasn't selected
+        
+        # Clean up
+        MCQEvaluator._instance = None
+        MCQEvaluator._semantic_model = None
+
+
 class TestComputeMCQAggregateMetrics:
     """Tests for aggregate MCQ metrics computation."""
     

@@ -126,7 +126,7 @@ def load_and_extract_metrics(metrics_path: Path) -> Optional[Dict[str, Any]]:
         # MCQ metrics (SciQ tasks only - will be NaN for non-SciQ tasks)
         "oma_accuracy": metrics.get("oma_accuracy"),
         "avg_gom": metrics.get("avg_gom"),
-        "acr_rate": metrics.get("acr_rate"),
+        "acr_rate": metrics.get("acr_rate"),  # Legacy format only
     }
     
     # Derive effective mode label for plotting (combine mode + ace_mode)

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "sciq_1",
+    "domain": "science",
+    "question": "What phenomenon makes global winds blow northeast to southwest or the reverse in the northern hemisphere and northwest to southeast or the reverse in the southern hemisphere?",
+    "correct_answer": "coriolis effect",
+    "distractor1": "muon effect",
+    "distractor2": "centrifugal effect",
+    "distractor3": "tropical effect",
+    "support": "Without Coriolis Effect the global winds would blow north to south or south to north. But Coriolis makes them blow northeast to southwest or the reverse in the northern hemisphere and northwest to southeast or the reverse in the southern hemisphere.",
+    "answer": "coriolis effect"
+  },
+  {
+    "id": "sciq_2",
+    "domain": "science",
+    "question": "What is the primary gas that plants use during photosynthesis?",
+    "correct_answer": "carbon dioxide",
+    "distractor1": "oxygen",
+    "distractor2": "nitrogen",
+    "distractor3": "hydrogen",
+    "support": "During photosynthesis, plants absorb carbon dioxide from the atmosphere and use it along with water and sunlight to produce glucose and oxygen.",
+    "answer": "carbon dioxide"
+  },
+  {
+    "id": "sciq_3",
+    "domain": "science",
+    "question": "What force keeps planets in orbit around the sun?",
+    "correct_answer": "gravity",
+    "distractor1": "magnetism",
+    "distractor2": "friction",
+    "distractor3": "nuclear force",
+    "support": "Gravity is the force that attracts two bodies toward each other. The sun's gravitational pull keeps all the planets in our solar system in their orbits.",
+    "answer": "gravity"
+  },
+  {
+    "id": "sciq_4",
+    "domain": "science",
+    "question": "What is the chemical formula for water?",
+    "correct_answer": "H2O",
+    "distractor1": "CO2",
+    "distractor2": "NaCl",
+    "distractor3": "O2",
+    "support": "Water is a chemical compound consisting of two hydrogen atoms bonded to one oxygen atom, hence the formula H2O.",
+    "answer": "H2O"
+  },
+  {
+    "id": "sciq_5",
+    "domain": "science",
+    "question": "What type of energy is stored in food?",
+    "correct_answer": "chemical energy",
+    "distractor1": "kinetic energy",
+    "distractor2": "thermal energy",
+    "distractor3": "electrical energy",
+    "support": "Food contains chemical energy that is stored in the bonds between atoms and molecules. This energy is released during digestion and cellular respiration.",
+    "answer": "chemical energy"
+  }
+]

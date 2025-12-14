@@ -117,12 +117,34 @@ def get_model_config(model_id_or_key: str) -> ModelConfig:
 
 # Task registry: maps task names to dataset paths and domains
 # Available tasks:
+#   - tatqa_tiny: Finance QA (3 examples)
+#   - medqa_tiny: Medical QA (3 examples)
+#   - iot_tiny: IoT/Anomaly Detection (5 examples)
+#   - sciq_tiny: Science MCQ (5 examples) - for MCQ-aware evaluation
+#   - sciq_test: Science MCQ (5 examples) - alias for testing
 #   - medqa_train: Medical QA training set (full MedQA dataset)
 #   - math_train: Math word problems training set
 #   - sciq_train: Science QA training set (11,679 examples)
 #   - sciq_val: Science QA validation set (1,000 examples)
-#   - sciq_test: Science QA test set (1,000 examples)
 TASK_CONFIGS: Dict[str, Dict[str, str]] = {
+    # Tiny datasets for smoke tests
+    "tatqa_tiny": {
+        "path": "data/tasks/tatqa_tiny.json",
+        "domain": "finance",
+    },
+    "medqa_tiny": {
+        "path": "data/tasks/medqa_tiny.json",
+        "domain": "medical",
+    },
+    "iot_tiny": {
+        "path": "data/tasks/iot_tiny.json",
+        "domain": "iot",
+    },
+    "sciq_tiny": {
+        "path": "data/tasks/sciq_tiny.json",
+        "domain": "science",
+    },
+    # HPC full datasets
     "medqa_train": {
         "path": "data/tasks/train_med.jsonl",
         "domain": "medical",

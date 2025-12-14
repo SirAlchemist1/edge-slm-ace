@@ -17,6 +17,14 @@ from edge_slm_ace.utils.config import (
     ACE_MODE_FULL,
     ACE_MODE_WORKING,
 )
+from edge_slm_ace.utils.mcq_eval import (
+    is_sciq_task,
+    has_mcq_options,
+    extract_mcq_options,
+    detect_choice_marker,
+    MCQEvaluator,
+    compute_mcq_aggregate_metrics,
+)
 
 __all__ = [
     "compute_accuracy",
@@ -33,4 +41,11 @@ __all__ = [
     "MODEL_CONFIGS",
     "ACE_MODE_FULL",
     "ACE_MODE_WORKING",
+    # MCQ evaluation
+    "is_sciq_task",
+    "has_mcq_options",
+    "extract_mcq_options",
+    "detect_choice_marker",
+    "MCQEvaluator",
+    "compute_mcq_aggregate_metrics",
 ]

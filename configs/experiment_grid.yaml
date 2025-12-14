@@ -19,16 +19,24 @@ models:
 #    max_context: 1024
 #    notes: "CPU only - for smoke tests"
     
-   #Production models (uncomment when ready)
-   - name: phi-3-mini
-     hf_id: microsoft/Phi-3-mini-4k-instruct
-     max_context: 4096
-     notes: "Good balance of size and capability"
+  # Production models
+  - name: phi-3-mini
+    hf_id: microsoft/Phi-3-mini-4k-instruct
+    max_context: 4096
+    notes: "Good balance of size and capability"
+    precision: "fp16"  # Can be fp16, int8, int4 for quantization
   
-  # - name: llama-3.2-1b
-  #   hf_id: meta-llama/Llama-3.2-1B-Instruct
-  #   max_context: 4096
-  #   notes: "Smallest Llama 3.2 model"
+  - name: tinyllama-1.1b
+    hf_id: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    max_context: 2048
+    notes: "Ultra-lightweight 1.1B parameter model"
+    precision: "fp16"
+  
+  - name: mistral-7b-instruct
+    hf_id: mistralai/Mistral-7B-Instruct-v0.3
+    max_context: 8192
+    notes: "7B parameter model (assumes 4-bit quantization handled externally)"
+    precision: "int4"  # Assume 4-bit quantization
 
 # -----------------------------------------------------------------------------
 # Tasks / Datasets
@@ -77,15 +85,66 @@ modes:
     max_entries_per_domain: 32
     description: "ACE with top-k retrieval"
     
-  # ACE Working Memory: Token-budgeted entries
-  - name: ace_working_memory
+  # TinyACE Working Memory 256: Token-budgeted entries (256 tokens)
+  - name: tinyace_wm_256
     mode: ace
     ace_mode: ace_working_memory
-    token_budget: 500
+    working_memory_token_budget: 256
     top_k: 5
     prune_every_n: 10
     max_entries_per_domain: 32
-    description: "ACE with token-budgeted working memory"
+    description: "TinyACE with 256 token working memory budget"
+    
+  # TinyACE Working Memory 512: Token-budgeted entries (512 tokens)
+  - name: tinyace_wm_512
+    mode: ace
+    ace_mode: ace_working_memory
+    working_memory_token_budget: 512
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    description: "TinyACE with 512 token working memory budget"
+    
+  # Ablation modes for retention scoring
+  - name: tinyace_ablate_no_vagueness
+    mode: ace
+    ace_mode: ace_working_memory
+    working_memory_token_budget: 256
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    disable_vagueness_penalty: true
+    description: "TinyACE without vagueness penalty (δ=0)"
+    
+  - name: tinyace_ablate_no_recency
+    mode: ace
+    ace_mode: ace_working_memory
+    working_memory_token_budget: 256
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    disable_recency_decay: true
+    description: "TinyACE without recency decay (γ=0)"
+    
+  - name: tinyace_ablate_no_failure
+    mode: ace
+    ace_mode: ace_working_memory
+    working_memory_token_budget: 256
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    disable_failure_penalty: true
+    description: "TinyACE without failure penalty (β=0)"
+    
+  - name: tinyace_fifo
+    mode: ace
+    ace_mode: ace_working_memory
+    working_memory_token_budget: 256
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    fifo_memory: true
+    description: "TinyACE with FIFO eviction (no scoring)"
 
 # -----------------------------------------------------------------------------
 # Devices
@@ -122,6 +181,12 @@ defaults:
 # -----------------------------------------------------------------------------
 # These match the formal retention scoring equation:
 # S(l_i, t) = α·(N_succ/N_used+ε) - β·(N_fail/N_used+ε) + γ·exp(-λ·(t-t_last)) - δ·V(l_i)
+#
+# Ablation flags (can be overridden per mode):
+#   disable_vagueness_penalty: Set δ=0 (ignore vagueness term)
+#   disable_recency_decay: Set γ=0 (ignore recency term)
+#   disable_failure_penalty: Set β=0 (ignore failure term)
+#   fifo_memory: Bypass scoring entirely, use FIFO eviction
 scoring:
   alpha: 1.0        # Weight for success ratio
   beta: 0.5         # Weight for failure ratio (penalty)
@@ -129,6 +194,11 @@ scoring:
   delta: 0.4        # Weight for vagueness penalty
   lambda_decay: 0.05  # Decay rate for recency
   epsilon: 1.0      # Smoothing constant
+  # Ablation flags (defaults to false, can be overridden per mode)
+  disable_vagueness_penalty: false
+  disable_recency_decay: false
+  disable_failure_penalty: false
+  fifo_memory: false
 
 # -----------------------------------------------------------------------------
 # Output Format

@@ -115,8 +115,10 @@ def build_experiment_command(
         cmd.extend(["--playbook-path", str(playbook_path)])
         
         # Token budget (for working memory mode)
-        if "token_budget" in mode_config:
-            cmd.extend(["--token-budget", str(mode_config["token_budget"])])
+        # Support both token_budget and working_memory_token_budget
+        token_budget = mode_config.get("working_memory_token_budget") or mode_config.get("token_budget")
+        if token_budget:
+            cmd.extend(["--token-budget", str(token_budget)])
         
         # Top-k
         if "top_k" in mode_config:
@@ -127,6 +129,16 @@ def build_experiment_command(
             cmd.extend(["--prune-every-n", str(mode_config["prune_every_n"])])
         if "max_entries_per_domain" in mode_config:
             cmd.extend(["--max-entries-per-domain", str(mode_config["max_entries_per_domain"])])
+        
+        # Ablation flags
+        if mode_config.get("disable_vagueness_penalty"):
+            cmd.extend(["--disable-vagueness-penalty"])
+        if mode_config.get("disable_recency_decay"):
+            cmd.extend(["--disable-recency-decay"])
+        if mode_config.get("disable_failure_penalty"):
+            cmd.extend(["--disable-failure-penalty"])
+        if mode_config.get("fifo_memory"):
+            cmd.extend(["--fifo-memory"])
     
     # Add limit if specified
     effective_limit = limit or defaults.get("limit")

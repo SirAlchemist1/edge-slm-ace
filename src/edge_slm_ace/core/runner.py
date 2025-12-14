@@ -1,5 +1,6 @@
 """Main runner for baseline and ACE-style evaluation pipelines."""
 
+import statistics
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -21,6 +22,13 @@ from edge_slm_ace.utils.metrics import (
     compute_average_latency,
     semantic_answer_score,
     compute_bleu_score,
+)
+from edge_slm_ace.utils.mcq_eval import (
+    is_sciq_task,
+    has_mcq_options,
+    extract_mcq_options,
+    MCQEvaluator,
+    compute_mcq_aggregate_metrics,
 )
 from edge_slm_ace.models.model_manager import generate, count_tokens
 from edge_slm_ace.memory.playbook import Playbook
@@ -45,6 +53,11 @@ def run_dataset_baseline(
     3. Comparing answer to ground truth (exact match)
     4. Recording results with consistent schema
     
+    For SciQ tasks, also computes MCQ-aware metrics:
+    - Option-Mapped Accuracy (OMA)
+    - Gold Option Margin (GOM)
+    - Answerable Choice Rate (ACR)
+    
     Args:
         model: Loaded language model (from model_manager.load_model_and_tokenizer).
         tokenizer: Loaded tokenizer (from model_manager.load_model_and_tokenizer).
@@ -54,6 +67,10 @@ def run_dataset_baseline(
             - answer (str): Ground truth answer
             - context (str, optional): Additional context
             - domain (str, optional): Domain name
+            For SciQ format, also includes:
+            - correct_answer (str): The correct answer text
+            - distractor1, distractor2, distractor3 (str): Incorrect options
+            - support (str): Supporting context
         domain: Domain name (e.g., "finance", "medical", "iot").
         config: ModelConfig with generation parameters (max_new_tokens, temperature, top_p).
         model_id: HuggingFace model ID (for result tracking).
@@ -76,25 +93,55 @@ def run_dataset_baseline(
               - question (str): Original question
               - context (str): Context if provided, else empty string
               - correct (int): 1 if exact match, 0 otherwise
+            * MCQ columns (for SciQ tasks only):
+              - pred_option (str): Predicted option letter (A/B/C/D)
+              - gold_option (str): Correct option letter
+              - oma_correct (int): 1 if pred_option == gold_option
+              - gom (float): Gold Option Margin
+              - acr_hit (int): 1 if choice marker detected
         - summary: Dict with aggregate statistics:
             * accuracy (float): Overall accuracy (0.0 to 1.0)
             * avg_latency_ms (float): Average latency in milliseconds
             * num_examples (int): Number of examples processed
+            * oma_accuracy (float, optional): MCQ Option-Mapped Accuracy (SciQ only)
+            * avg_gom (float, optional): Average Gold Option Margin (SciQ only)
+            * acr_rate (float, optional): Answerable Choice Rate (SciQ only)
     """
     results = []
     predictions = []
     labels = []
     latencies = []
+    end_to_end_latencies = []  # Full query processing time
     prompt_tokens_list = []
     prompt_output_tokens_list = []
-
+    
+    # Check if this is a SciQ task for MCQ-aware evaluation
+    is_mcq_task = is_sciq_task(task_name)
+    mcq_evaluator = None
+    if is_mcq_task:
+        try:
+            mcq_evaluator = MCQEvaluator.get_instance()
+        except Exception as e:
+            print(f"Warning: Failed to initialize MCQEvaluator: {e}")
+            is_mcq_task = False
+    
     total_examples = len(dataset)
-
+    
     for idx, example in enumerate(dataset, start=1):
+        # Track end-to-end latency (entire query processing)
+        query_start_time = time.time()
+        
         example_id = example.get("id", "unknown")
         question = example.get("question", "")
-        context = example.get("context")
+        # For SciQ, use "support" as context if "context" not present
+        context = example.get("context") or example.get("support")
         ground_truth = example.get("answer", "")
+        
+        # Extract MCQ options if this is a SciQ task
+        mcq_options = None
+        gold_option = None
+        if is_mcq_task and has_mcq_options(example):
+            mcq_options, gold_option, _ = extract_mcq_options(example)
         
         # Build simple prompt
         if context:
@@ -113,6 +160,7 @@ def run_dataset_baseline(
             top_p=config.top_p,
         )
         latency_ms = (time.time() - start_time) * 1000
+        end_to_end_latency_sec = time.time() - query_start_time
         
         # Count tokens
         prompt_tokens = count_tokens(tokenizer, prompt)
@@ -146,6 +194,7 @@ def run_dataset_baseline(
             "is_correct": 1 if correct else 0,  # Canonical correctness
             "context_tokens": context_tokens,  # For token efficiency plots
             "latency_ms": latency_ms,  # For latency plots
+            "latency_sec": end_to_end_latency_sec,  # End-to-end latency in seconds
             # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
@@ -163,11 +212,35 @@ def run_dataset_baseline(
             "semantic_score": semantic_score,
             "bleu_score": bleu_score,
         }
+        
+        # Compute MCQ metrics for SciQ tasks
+        if is_mcq_task and mcq_options and gold_option and mcq_evaluator:
+            try:
+                mcq_metrics = mcq_evaluator.evaluate_mcq(
+                    prediction=answer,
+                    options=mcq_options,
+                    gold_option=gold_option,
+                )
+                result["pred_option"] = mcq_metrics["pred_option"]
+                result["gold_option"] = mcq_metrics["gold_option"]
+                result["oma_correct"] = mcq_metrics["oma_correct"]
+                result["gom"] = mcq_metrics["gom"]
+                result["acr_hit"] = mcq_metrics["acr_hit"]
+            except Exception as e:
+                # Log but don't fail - MCQ metrics are optional
+                print(f"Warning: MCQ evaluation failed for {example_id}: {e}")
+                result["pred_option"] = None
+                result["gold_option"] = gold_option
+                result["oma_correct"] = None
+                result["gom"] = None
+                result["acr_hit"] = None
+        
         results.append(result)
         
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+        end_to_end_latencies.append(end_to_end_latency_sec)
         prompt_tokens_list.append(prompt_tokens)
         prompt_output_tokens_list.append(output_tokens)
     
@@ -175,13 +248,27 @@ def run_dataset_baseline(
     accuracy = compute_accuracy(predictions, labels)
     avg_latency = compute_average_latency(latencies)
     
+    # Compute latency statistics
+    import statistics
+    avg_latency_sec = statistics.mean(end_to_end_latencies) if end_to_end_latencies else 0.0
+    median_latency_sec = statistics.median(end_to_end_latencies) if end_to_end_latencies else 0.0
+    
     summary = {
         "accuracy": accuracy,
         "avg_latency_ms": avg_latency,
+        "avg_latency_sec": avg_latency_sec,
+        "median_latency_sec": median_latency_sec,
         "num_examples": len(dataset),
         "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list) if prompt_tokens_list else 0.0,
         "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list) if prompt_output_tokens_list else 0.0,
     }
+    
+    # Add MCQ aggregate metrics for SciQ tasks
+    if is_mcq_task:
+        mcq_agg = compute_mcq_aggregate_metrics(results)
+        summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
+        summary["avg_gom"] = mcq_agg["avg_gom"]
+        summary["acr_rate"] = mcq_agg["acr_rate"]
     
     return results, summary
 
@@ -474,14 +561,42 @@ def run_dataset_ace(
     predictions = []
     labels = []
     latencies = []
+    end_to_end_latencies = []  # Full query processing time
     prompt_tokens_list=[]
     prompt_output_tokens_list = []
+    playbook_log = []  # Per-step playbook stats
+    
+    # Check if this is a SciQ task for MCQ-aware evaluation
+    is_mcq_task = is_sciq_task(task_name)
+    mcq_evaluator = None
+    if is_mcq_task:
+        try:
+            mcq_evaluator = MCQEvaluator.get_instance()
+        except Exception as e:
+            print(f"Warning: Failed to initialize MCQEvaluator: {e}")
+            is_mcq_task = False
     
     for step, example in enumerate(dataset, start=1):
+        # Track end-to-end latency (entire query processing)
+        query_start_time = time.time()
+        
         example_id = example.get("id", "unknown")
         question = example.get("question", "")
-        context = example.get("context")
+        # For SciQ, use "support" as context if "context" not present
+        context = example.get("context") or example.get("support")
         ground_truth = example.get("answer", "")
+        
+        # Extract MCQ options if this is a SciQ task
+        mcq_options = None
+        gold_option = None
+        if is_mcq_task and has_mcq_options(example):
+            mcq_options, gold_option, _ = extract_mcq_options(example)
+        
+        # Capture playbook state before processing
+        playbook_before = {
+            "num_entries": len(playbook.entries),
+            "total_tokens": playbook.total_tokens,
+        }
         
         # Step 1: Generator - build prompt with playbook context
         generator_prompt = build_generator_prompt(
@@ -617,8 +732,34 @@ def run_dataset_ace(
             playbook.record_feedback(entry_id, helpful=correct)
         
         # Step 6: Occasional pruning
+        num_evictions = 0
         if step % prune_every_n == 0:
+            entries_before_prune = len(playbook.entries)
             playbook.prune(max_entries_per_domain=max_entries_per_domain)
+            num_evictions = entries_before_prune - len(playbook.entries)
+        
+        # Capture playbook state after processing
+        playbook_after = {
+            "num_entries": len(playbook.entries),
+            "total_tokens": playbook.total_tokens,
+        }
+        
+        # Track evictions that happened during add_entry (working memory mode)
+        # This is approximate - we track the difference in entry count
+        entries_added = len(filtered_lessons) if should_reflect else 0
+        evictions_during_add = max(0, playbook_before["num_entries"] + entries_added - playbook_after["num_entries"])
+        total_evictions = num_evictions + evictions_during_add
+        
+        # Log playbook stats for this step
+        playbook_log.append({
+            "step_index": step,
+            "num_entries": playbook_after["num_entries"],
+            "total_tokens": playbook_after["total_tokens"],
+            "num_evictions": total_evictions,
+        })
+        
+        # Calculate end-to-end latency
+        end_to_end_latency_sec = time.time() - query_start_time
         
         # Record result with consistent schema
         result = {
@@ -630,6 +771,7 @@ def run_dataset_ace(
             "is_correct": 1 if correct else 0,
             "context_tokens": context_tokens,  # Playbook context tokens
             "latency_ms": latency_ms,
+            "latency_sec": end_to_end_latency_sec,  # End-to-end latency in seconds
             # Legacy columns (for backward compatibility)
             "model_id": model_id,
             "task_name": task_name,
@@ -649,11 +791,35 @@ def run_dataset_ace(
             "semantic_score": score,
             "bleu_score": bleu_score,
         }
+        
+        # Compute MCQ metrics for SciQ tasks
+        if is_mcq_task and mcq_options and gold_option and mcq_evaluator:
+            try:
+                mcq_metrics = mcq_evaluator.evaluate_mcq(
+                    prediction=answer,
+                    options=mcq_options,
+                    gold_option=gold_option,
+                )
+                result["pred_option"] = mcq_metrics["pred_option"]
+                result["gold_option"] = mcq_metrics["gold_option"]
+                result["oma_correct"] = mcq_metrics["oma_correct"]
+                result["gom"] = mcq_metrics["gom"]
+                result["acr_hit"] = mcq_metrics["acr_hit"]
+            except Exception as e:
+                # Log but don't fail - MCQ metrics are optional
+                print(f"Warning: MCQ evaluation failed for {example_id}: {e}")
+                result["pred_option"] = None
+                result["gold_option"] = gold_option
+                result["oma_correct"] = None
+                result["gom"] = None
+                result["acr_hit"] = None
+        
         results.append(result)
         
         predictions.append(answer)
         labels.append(ground_truth)
         latencies.append(latency_ms)
+        end_to_end_latencies.append(end_to_end_latency_sec)
         prompt_tokens_list.append(prompt_tokens)
         prompt_output_tokens_list.append(output_tokens)
     
@@ -664,14 +830,31 @@ def run_dataset_ace(
     accuracy = compute_accuracy(predictions, labels)
     avg_latency = compute_average_latency(latencies)
     
+    # Compute latency statistics
+    import statistics
+    avg_latency_sec = statistics.mean(end_to_end_latencies) if end_to_end_latencies else 0.0
+    median_latency_sec = statistics.median(end_to_end_latencies) if end_to_end_latencies else 0.0
+    
     summary = {
         "accuracy": accuracy,
         "avg_latency_ms": avg_latency,
+        "avg_latency_sec": avg_latency_sec,
+        "median_latency_sec": median_latency_sec,
         "num_examples": len(dataset),
         "playbook_size": len(playbook.entries),
+        "final_playbook_num_entries": len(playbook.entries),
+        "final_playbook_total_tokens": playbook.total_tokens,
         "mean_prompt_token": sum(prompt_tokens_list) / len(prompt_tokens_list) if prompt_tokens_list else 0.0,
         "mean_output_token": sum(prompt_output_tokens_list) / len(prompt_output_tokens_list) if prompt_output_tokens_list else 0.0,
+        "playbook_log": playbook_log,  # Include playbook log in summary for saving
     }
+    
+    # Add MCQ aggregate metrics for SciQ tasks
+    if is_mcq_task:
+        mcq_agg = compute_mcq_aggregate_metrics(results)
+        summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
+        summary["avg_gom"] = mcq_agg["avg_gom"]
+        summary["acr_rate"] = mcq_agg["acr_rate"]
     
     return results, summary
 

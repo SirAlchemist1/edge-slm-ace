@@ -303,6 +303,7 @@ def run_dataset_baseline(
         has_new_format = any("chosen_option_idx" in r and r.get("chosen_option_idx") is not None for r in results)
         has_legacy_format = any("pred_option" in r and r.get("pred_option") is not None for r in results)
         
+        # Handle both formats: compute metrics for whichever format(s) are present
         if has_new_format:
             # Compute aggregates for new format
             oma_values = [r["oma_correct"] for r in results if "oma_correct" in r and r["oma_correct"] is not None]
@@ -312,11 +313,16 @@ def run_dataset_baseline(
                 summary["oma_accuracy"] = sum(oma_values) / len(oma_values)
             if gom_values:
                 summary["avg_gom"] = sum(gom_values) / len(gom_values)
-        elif has_legacy_format:
-            # Use existing aggregate function for legacy format
+        
+        if has_legacy_format:
+            # Compute legacy format metrics (including acr_rate)
             mcq_agg = compute_mcq_aggregate_metrics(results)
-            summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
-            summary["avg_gom"] = mcq_agg["avg_gom"]
+            # Only set if not already set by new format (prefer new format values if both exist)
+            if "oma_accuracy" not in summary:
+                summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
+            if "avg_gom" not in summary:
+                summary["avg_gom"] = mcq_agg["avg_gom"]
+            # acr_rate only exists in legacy format
             summary["acr_rate"] = mcq_agg["acr_rate"]
     
     return results, summary
@@ -944,6 +950,7 @@ def run_dataset_ace(
         has_new_format = any("chosen_option_idx" in r and r.get("chosen_option_idx") is not None for r in results)
         has_legacy_format = any("pred_option" in r and r.get("pred_option") is not None for r in results)
         
+        # Handle both formats: compute metrics for whichever format(s) are present
         if has_new_format:
             # Compute aggregates for new format
             oma_values = [r["oma_correct"] for r in results if "oma_correct" in r and r["oma_correct"] is not None]
@@ -953,11 +960,16 @@ def run_dataset_ace(
                 summary["oma_accuracy"] = sum(oma_values) / len(oma_values)
             if gom_values:
                 summary["avg_gom"] = sum(gom_values) / len(gom_values)
-        elif has_legacy_format:
-            # Use existing aggregate function for legacy format
+        
+        if has_legacy_format:
+            # Compute legacy format metrics (including acr_rate)
             mcq_agg = compute_mcq_aggregate_metrics(results)
-            summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
-            summary["avg_gom"] = mcq_agg["avg_gom"]
+            # Only set if not already set by new format (prefer new format values if both exist)
+            if "oma_accuracy" not in summary:
+                summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
+            if "avg_gom" not in summary:
+                summary["avg_gom"] = mcq_agg["avg_gom"]
+            # acr_rate only exists in legacy format
             summary["acr_rate"] = mcq_agg["acr_rate"]
     
     return results, summary

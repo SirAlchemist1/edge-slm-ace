@@ -158,11 +158,11 @@ TASK_CONFIGS: Dict[str, Dict[str, str]] = {
         "domain": "science",
     },
     "sciq_val": {
-        "path": "data/tasks/sciq_val.jsonl",
+        "path": "data/tasks/sciq_val.json",
         "domain": "science",
     },
     "sciq_test": {
-        "path": "data/tasks/sciq_test.jsonl",
+        "path": "data/tasks/sciq_test.json",
         "domain": "science",
     },
     "sciq_mcq_test": {

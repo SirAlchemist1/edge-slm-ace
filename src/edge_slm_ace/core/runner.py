@@ -27,6 +27,9 @@ from edge_slm_ace.utils.mcq_eval import (
     is_sciq_task,
     has_mcq_options,
     extract_mcq_options,
+    extract_mcq_options_with_indices,
+    build_prompt_with_choices,
+    evaluate_mcq_with_indices,
     MCQEvaluator,
     compute_mcq_aggregate_metrics,
 )
@@ -137,14 +140,24 @@ def run_dataset_baseline(
         context = example.get("context") or example.get("support")
         ground_truth = example.get("answer", "")
         
-        # Extract MCQ options if this is a SciQ task
-        mcq_options = None
+        # Extract MCQ options if this is a SciQ task (supports both formats)
+        mcq_options_list = None
+        gold_option_idx = None
+        mcq_options_dict = None
         gold_option = None
-        if is_mcq_task and has_mcq_options(example):
-            mcq_options, gold_option, _ = extract_mcq_options(example)
         
-        # Build simple prompt
-        if context:
+        if is_mcq_task and has_mcq_options(example):
+            # Try new format first (options list + gold_option_idx)
+            try:
+                mcq_options_list, gold_option_idx = extract_mcq_options_with_indices(example)
+            except (ValueError, KeyError):
+                # Fall back to legacy format (correct_answer + distractors)
+                mcq_options_dict, gold_option, _ = extract_mcq_options(example)
+        
+        # Build prompt (with choices if options exist)
+        if mcq_options_list:
+            prompt = build_prompt_with_choices(question, context, mcq_options_list)
+        elif context:
             prompt = f"Context: {context}\n\nQuestion: {question}\n\nAnswer:"
         else:
             prompt = f"Question: {question}\n\nAnswer:"
@@ -213,12 +226,33 @@ def run_dataset_baseline(
             "bleu_score": bleu_score,
         }
         
-        # Compute MCQ metrics for SciQ tasks
-        if is_mcq_task and mcq_options and gold_option and mcq_evaluator:
+        # Compute MCQ metrics for SciQ tasks (new format with indices)
+        if is_mcq_task and mcq_options_list is not None and gold_option_idx is not None and mcq_evaluator:
+            try:
+                mcq_metrics = evaluate_mcq_with_indices(
+                    prediction=answer,
+                    options=mcq_options_list,
+                    gold_option_idx=gold_option_idx,
+                    evaluator=mcq_evaluator,
+                )
+                result["chosen_option_idx"] = mcq_metrics["chosen_option_idx"]
+                result["oma_correct"] = mcq_metrics["oma_correct"]
+                result["gom"] = mcq_metrics["gom"]
+                result["gold_option_idx"] = gold_option_idx
+            except Exception as e:
+                # Log but don't fail - MCQ metrics are optional
+                print(f"Warning: MCQ evaluation failed for {example_id}: {e}")
+                result["chosen_option_idx"] = None
+                result["oma_correct"] = None
+                result["gom"] = None
+                result["gold_option_idx"] = gold_option_idx
+        
+        # Legacy format support (for backward compatibility)
+        elif is_mcq_task and mcq_options_dict and gold_option and mcq_evaluator:
             try:
                 mcq_metrics = mcq_evaluator.evaluate_mcq(
                     prediction=answer,
-                    options=mcq_options,
+                    options=mcq_options_dict,
                     gold_option=gold_option,
                 )
                 result["pred_option"] = mcq_metrics["pred_option"]
@@ -265,10 +299,31 @@ def run_dataset_baseline(
     
     # Add MCQ aggregate metrics for SciQ tasks
     if is_mcq_task:
-        mcq_agg = compute_mcq_aggregate_metrics(results)
-        summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
-        summary["avg_gom"] = mcq_agg["avg_gom"]
-        summary["acr_rate"] = mcq_agg["acr_rate"]
+        # Check if we have new format metrics (chosen_option_idx) or legacy format (pred_option)
+        has_new_format = any("chosen_option_idx" in r and r.get("chosen_option_idx") is not None for r in results)
+        has_legacy_format = any("pred_option" in r and r.get("pred_option") is not None for r in results)
+        
+        # Handle both formats: compute metrics for whichever format(s) are present
+        if has_new_format:
+            # Compute aggregates for new format
+            oma_values = [r["oma_correct"] for r in results if "oma_correct" in r and r["oma_correct"] is not None]
+            gom_values = [r["gom"] for r in results if "gom" in r and r["gom"] is not None]
+            
+            if oma_values:
+                summary["oma_accuracy"] = sum(oma_values) / len(oma_values)
+            if gom_values:
+                summary["avg_gom"] = sum(gom_values) / len(gom_values)
+        
+        if has_legacy_format:
+            # Compute legacy format metrics (including acr_rate)
+            mcq_agg = compute_mcq_aggregate_metrics(results)
+            # Only set if not already set by new format (prefer new format values if both exist)
+            if "oma_accuracy" not in summary:
+                summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
+            if "avg_gom" not in summary:
+                summary["avg_gom"] = mcq_agg["avg_gom"]
+            # acr_rate only exists in legacy format
+            summary["acr_rate"] = mcq_agg["acr_rate"]
     
     return results, summary
 
@@ -586,11 +641,19 @@ def run_dataset_ace(
         context = example.get("context") or example.get("support")
         ground_truth = example.get("answer", "")
         
-        # Extract MCQ options if this is a SciQ task
-        mcq_options = None
+        # Extract MCQ options if this is a SciQ task (supports both formats)
+        mcq_options_list = None
+        gold_option_idx = None
+        mcq_options_dict = None
         gold_option = None
+        
         if is_mcq_task and has_mcq_options(example):
-            mcq_options, gold_option, _ = extract_mcq_options(example)
+            # Try new format first (options list + gold_option_idx)
+            try:
+                mcq_options_list, gold_option_idx = extract_mcq_options_with_indices(example)
+            except (ValueError, KeyError):
+                # Fall back to legacy format (correct_answer + distractors)
+                mcq_options_dict, gold_option, _ = extract_mcq_options(example)
         
         # Capture playbook state before processing
         playbook_before = {
@@ -609,6 +672,17 @@ def run_dataset_ace(
             top_k=top_k,
             current_step=step,
         )
+        
+        # If options exist, modify prompt to include choices
+        if mcq_options_list:
+            # Append choices to the prompt
+            choices_text = "\n\nChoices:\n"
+            choices_text += f"(A) {mcq_options_list[0]}\n"
+            choices_text += f"(B) {mcq_options_list[1]}\n"
+            choices_text += f"(C) {mcq_options_list[2]}\n"
+            choices_text += f"(D) {mcq_options_list[3]}\n"
+            choices_text += "\nAnswer with the exact choice text or the letter (A, B, C, or D):"
+            generator_prompt = generator_prompt.rstrip() + choices_text
         
         # Track which entries were used (retrieved and included in prompt)
         # This is done BEFORE generation so we know exactly which lessons were used
@@ -792,12 +866,33 @@ def run_dataset_ace(
             "bleu_score": bleu_score,
         }
         
-        # Compute MCQ metrics for SciQ tasks
-        if is_mcq_task and mcq_options and gold_option and mcq_evaluator:
+        # Compute MCQ metrics for SciQ tasks (new format with indices)
+        if is_mcq_task and mcq_options_list is not None and gold_option_idx is not None and mcq_evaluator:
+            try:
+                mcq_metrics = evaluate_mcq_with_indices(
+                    prediction=answer,
+                    options=mcq_options_list,
+                    gold_option_idx=gold_option_idx,
+                    evaluator=mcq_evaluator,
+                )
+                result["chosen_option_idx"] = mcq_metrics["chosen_option_idx"]
+                result["oma_correct"] = mcq_metrics["oma_correct"]
+                result["gom"] = mcq_metrics["gom"]
+                result["gold_option_idx"] = gold_option_idx
+            except Exception as e:
+                # Log but don't fail - MCQ metrics are optional
+                print(f"Warning: MCQ evaluation failed for {example_id}: {e}")
+                result["chosen_option_idx"] = None
+                result["oma_correct"] = None
+                result["gom"] = None
+                result["gold_option_idx"] = gold_option_idx
+        
+        # Legacy format support (for backward compatibility)
+        elif is_mcq_task and mcq_options_dict and gold_option and mcq_evaluator:
             try:
                 mcq_metrics = mcq_evaluator.evaluate_mcq(
                     prediction=answer,
-                    options=mcq_options,
+                    options=mcq_options_dict,
                     gold_option=gold_option,
                 )
                 result["pred_option"] = mcq_metrics["pred_option"]
@@ -851,10 +946,31 @@ def run_dataset_ace(
     
     # Add MCQ aggregate metrics for SciQ tasks
     if is_mcq_task:
-        mcq_agg = compute_mcq_aggregate_metrics(results)
-        summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
-        summary["avg_gom"] = mcq_agg["avg_gom"]
-        summary["acr_rate"] = mcq_agg["acr_rate"]
+        # Check if we have new format metrics (chosen_option_idx) or legacy format (pred_option)
+        has_new_format = any("chosen_option_idx" in r and r.get("chosen_option_idx") is not None for r in results)
+        has_legacy_format = any("pred_option" in r and r.get("pred_option") is not None for r in results)
+        
+        # Handle both formats: compute metrics for whichever format(s) are present
+        if has_new_format:
+            # Compute aggregates for new format
+            oma_values = [r["oma_correct"] for r in results if "oma_correct" in r and r["oma_correct"] is not None]
+            gom_values = [r["gom"] for r in results if "gom" in r and r["gom"] is not None]
+            
+            if oma_values:
+                summary["oma_accuracy"] = sum(oma_values) / len(oma_values)
+            if gom_values:
+                summary["avg_gom"] = sum(gom_values) / len(gom_values)
+        
+        if has_legacy_format:
+            # Compute legacy format metrics (including acr_rate)
+            mcq_agg = compute_mcq_aggregate_metrics(results)
+            # Only set if not already set by new format (prefer new format values if both exist)
+            if "oma_accuracy" not in summary:
+                summary["oma_accuracy"] = mcq_agg["oma_accuracy"]
+            if "avg_gom" not in summary:
+                summary["avg_gom"] = mcq_agg["avg_gom"]
+            # acr_rate only exists in legacy format
+            summary["acr_rate"] = mcq_agg["acr_rate"]
     
     return results, summary
 

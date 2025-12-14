@@ -51,14 +51,22 @@ def has_mcq_options(example: Dict) -> bool:
     """
     Check if an example has MCQ options (SciQ format).
     
-    SciQ format has: question, correct_answer, distractor1, distractor2, distractor3, support
+    Supports two formats:
+    1. Legacy: correct_answer + distractor1/2/3
+    2. New: options (list) + gold_option_idx (int)
     
     Args:
         example: A dataset example dict.
         
     Returns:
-        True if the example has MCQ options.
+        True if the example has MCQ options in either format.
     """
+    # Check for new format: options list + gold_option_idx
+    if "options" in example and isinstance(example.get("options"), list) and len(example.get("options", [])) == 4:
+        if "gold_option_idx" in example:
+            return True
+    
+    # Check for legacy format: correct_answer + distractors
     return (
         "correct_answer" in example and
         "distractor1" in example and
@@ -69,7 +77,7 @@ def has_mcq_options(example: Dict) -> bool:
 
 def extract_mcq_options(example: Dict) -> Tuple[Dict[str, str], str, str]:
     """
-    Extract MCQ options from a SciQ-format example.
+    Extract MCQ options from a SciQ-format example (legacy format).
     
     Converts SciQ format (correct_answer + 3 distractors) to standard
     A/B/C/D option format. The correct answer is placed at a consistent
@@ -102,6 +110,47 @@ def extract_mcq_options(example: Dict) -> Tuple[Dict[str, str], str, str]:
     }
     
     return options, "A", correct
+
+
+def extract_mcq_options_with_indices(example: Dict) -> Tuple[List[str], int]:
+    """
+    Extract MCQ options from an example in the new format (options list + gold_option_idx).
+    
+    Supports two formats:
+    1. New format: options (list of 4 strings) + gold_option_idx (int 0-3)
+    2. Legacy format: correct_answer + distractor1/2/3 (converted to new format)
+    
+    Args:
+        example: A dataset example dict with either:
+            - New format: "options" (list) and "gold_option_idx" (int)
+            - Legacy format: "correct_answer" and "distractor1/2/3"
+            
+    Returns:
+        Tuple of (options_list, gold_option_idx):
+            - options_list: List of 4 option strings ["option0", "option1", "option2", "option3"]
+            - gold_option_idx: Integer index (0-3) of the correct option
+    """
+    # Check for new format first
+    if "options" in example and isinstance(example.get("options"), list):
+        options = example["options"]
+        if len(options) == 4 and "gold_option_idx" in example:
+            gold_idx = example["gold_option_idx"]
+            if 0 <= gold_idx < 4:
+                return options, gold_idx
+    
+    # Fall back to legacy format: correct_answer + distractors
+    if "correct_answer" in example and "distractor1" in example:
+        correct = example.get("correct_answer", "")
+        d1 = example.get("distractor1", "")
+        d2 = example.get("distractor2", "")
+        d3 = example.get("distractor3", "")
+        
+        # Convert to list format: correct answer at index 0
+        options = [correct, d1, d2, d3]
+        return options, 0
+    
+    # No options found
+    raise ValueError("Example does not contain MCQ options in supported formats")
 
 
 # ACR detection pattern: matches A/B/C/D as standalone choice markers
@@ -309,6 +358,106 @@ class MCQEvaluator:
             "detected_marker": detected_marker,
             "similarities": sim_dict,
         }
+
+
+def build_prompt_with_choices(
+    question: str,
+    context: Optional[str] = None,
+    options: Optional[List[str]] = None,
+) -> str:
+    """
+    Build a prompt with MCQ choices included.
+    
+    If options are provided, includes a "Choices (A)-(D)" block and asks
+    the model to answer with the exact choice text or letter.
+    
+    Args:
+        question: The question text.
+        context: Optional context/support text.
+        options: Optional list of 4 option strings.
+        
+    Returns:
+        Formatted prompt string.
+    """
+    prompt_parts = []
+    
+    if context:
+        prompt_parts.append(f"Context: {context}")
+    
+    prompt_parts.append(f"Question: {question}")
+    
+    if options and len(options) == 4:
+        prompt_parts.append("")
+        prompt_parts.append("Choices:")
+        prompt_parts.append(f"(A) {options[0]}")
+        prompt_parts.append(f"(B) {options[1]}")
+        prompt_parts.append(f"(C) {options[2]}")
+        prompt_parts.append(f"(D) {options[3]}")
+        prompt_parts.append("")
+        prompt_parts.append("Answer with the exact choice text or the letter (A, B, C, or D):")
+    else:
+        prompt_parts.append("")
+        prompt_parts.append("Answer:")
+    
+    return "\n".join(prompt_parts)
+
+
+def evaluate_mcq_with_indices(
+    prediction: str,
+    options: List[str],
+    gold_option_idx: int,
+    evaluator: Optional["MCQEvaluator"] = None,
+) -> Dict[str, any]:
+    """
+    Evaluate MCQ prediction using option indices (0-3).
+    
+    Computes:
+        - chosen_option_idx: Index (0-3) of option with highest semantic similarity to prediction
+        - oma_correct: 1 if chosen_option_idx == gold_option_idx, else 0
+        - gom: similarity(pred, gold_option) - mean(similarity(pred, distractors))
+    
+    Args:
+        prediction: The model's prediction text.
+        options: List of 4 option strings.
+        gold_option_idx: Integer index (0-3) of the correct option.
+        evaluator: Optional MCQEvaluator instance. If None, creates one.
+        
+    Returns:
+        Dict with:
+            - chosen_option_idx: int (0-3)
+            - oma_correct: int (0 or 1)
+            - gom: float
+    """
+    if evaluator is None:
+        evaluator = MCQEvaluator.get_instance()
+    
+    if len(options) != 4:
+        raise ValueError(f"Expected 4 options, got {len(options)}")
+    
+    if not (0 <= gold_option_idx < 4):
+        raise ValueError(f"gold_option_idx must be 0-3, got {gold_option_idx}")
+    
+    # Compute similarities between prediction and each option
+    similarities = evaluator.compute_similarities(prediction, options)
+    
+    # Find option with highest similarity
+    chosen_option_idx = int(np.argmax(similarities))
+    
+    # OMA: Option-Mapped Accuracy
+    oma_correct = 1 if chosen_option_idx == gold_option_idx else 0
+    
+    # GOM: Gold Option Margin
+    gold_sim = similarities[gold_option_idx]
+    distractor_indices = [i for i in range(4) if i != gold_option_idx]
+    distractor_sims = [similarities[i] for i in distractor_indices]
+    mean_distractor_sim = np.mean(distractor_sims) if distractor_sims else 0.0
+    gom = float(gold_sim - mean_distractor_sim)
+    
+    return {
+        "chosen_option_idx": chosen_option_idx,
+        "oma_correct": oma_correct,
+        "gom": gom,
+    }
 
 
 def compute_mcq_aggregate_metrics(

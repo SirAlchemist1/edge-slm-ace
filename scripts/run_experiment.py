@@ -59,10 +59,34 @@ def load_dataset(path: Path) -> List[Dict]:
     with open(path, "r", encoding="utf-8") as f:
         if path.suffix.lower() == ".jsonl":
             # JSONL: one JSON object per line
-            return [json.loads(line.strip()) for line in f if line.strip()]
+            dataset = [json.loads(line.strip()) for line in f if line.strip()]
         else:
             # JSON: standard array format
-            return json.load(f)
+            dataset = json.load(f)
+    
+    # Schema validation for SciQ format (non-fatal, but raises clear errors)
+    for example in dataset:
+        ex_id = example.get("id", "unknown")
+        # Check for SciQ legacy format (correct_answer + distractors)
+        if "correct_answer" in example:
+            missing = []
+            if "correct_answer" not in example or not example.get("correct_answer", "").strip():
+                missing.append("correct_answer")
+            if "distractor1" not in example or not example.get("distractor1", "").strip():
+                missing.append("distractor1")
+            if "distractor2" not in example or not example.get("distractor2", "").strip():
+                missing.append("distractor2")
+            if "distractor3" not in example or not example.get("distractor3", "").strip():
+                missing.append("distractor3")
+            if "question" not in example or not example.get("question", "").strip():
+                missing.append("question")
+            
+            if missing:
+                raise ValueError(
+                    f"SciQ example '{ex_id}' missing required fields: {', '.join(missing)}"
+                )
+    
+    return dataset
 
 
 def save_metrics(metrics: Dict[str, Any], path: Path) -> None:

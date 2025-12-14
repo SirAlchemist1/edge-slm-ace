@@ -22,10 +22,15 @@ from edge_slm_ace.utils.device_utils import get_device
 
 
 def load_dataset(path: Path) -> list[dict]:
-    """Load a dataset from a JSON file."""
+    """Load a dataset from a JSON or JSONL file."""
     import json
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        if path.suffix.lower() == ".jsonl":
+            # JSONL: one JSON object per line
+            return [json.loads(line.strip()) for line in f if line.strip()]
+        else:
+            # JSON: standard array format
+            return json.load(f)
 
 
 def main():

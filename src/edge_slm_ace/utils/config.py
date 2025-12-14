@@ -31,8 +31,8 @@ MODEL_CONFIGS: Dict[str, ModelConfig] = {
     "phi3-mini": ModelConfig(
         model_id="microsoft/Phi-3-mini-4k-instruct",
         max_new_tokens=256,
-        temperature=0.7,
-        top_p=0.95,
+        temperature=0.0,  # Greedy decoding for reproducible evaluation
+        top_p=1.0,
     ),
     "llama-3.2-1b": ModelConfig(
         model_id="meta-llama/Llama-3.2-1B-Instruct",
@@ -69,16 +69,23 @@ MODEL_CONFIGS: Dict[str, ModelConfig] = {
         temperature=0.3,  # Lower temperature for more focused answers
         top_p=0.9,
     ),
+    # Qwen models - use greedy decoding to avoid CUDA numerical instability
+    "qwen-2.5-3b": ModelConfig(
+        model_id="Qwen/Qwen2.5-3B-Instruct",
+        max_new_tokens=256,
+        temperature=0.0,  # Greedy decoding to avoid CUDA assertion errors
+        top_p=1.0,
+    ),
 }
 
 
 def get_model_config(model_id_or_key: str) -> ModelConfig:
     """
     Get a model configuration by key or model ID.
-    
+
     Args:
         model_id_or_key: Either a key from MODEL_CONFIGS or a HuggingFace model ID.
-        
+
     Returns:
         ModelConfig: The configuration for the model.
     """
@@ -92,8 +99,20 @@ def get_model_config(model_id_or_key: str) -> ModelConfig:
             top_p=config.top_p,
         )
     else:
-        # Assume it's a direct model ID
-        return ModelConfig(model_id=model_id_or_key)
+        # Check if it matches any model_id in the configs
+        for key, config in MODEL_CONFIGS.items():
+            if config.model_id == model_id_or_key:
+                # Found a match, return a copy
+                return ModelConfig(
+                    model_id=config.model_id,
+                    max_new_tokens=config.max_new_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                )
+
+        # Not found anywhere - create default config with the provided model ID
+        # Use temperature=0.0 for greedy decoding to avoid CUDA numerical issues
+        return ModelConfig(model_id=model_id_or_key, temperature=0.0, top_p=1.0)
 
 
 # Task registry: maps task names to dataset paths and domains
@@ -103,7 +122,12 @@ def get_model_config(model_id_or_key: str) -> ModelConfig:
 #   - iot_tiny: IoT/Anomaly Detection (5 examples)
 #   - sciq_tiny: Science MCQ (5 examples) - for MCQ-aware evaluation
 #   - sciq_test: Science MCQ (5 examples) - alias for testing
+#   - medqa_train: Medical QA training set (full MedQA dataset)
+#   - math_train: Math word problems training set
+#   - sciq_train: Science QA training set (11,679 examples)
+#   - sciq_val: Science QA validation set (1,000 examples)
 TASK_CONFIGS: Dict[str, Dict[str, str]] = {
+    # Tiny datasets for smoke tests
     "tatqa_tiny": {
         "path": "data/tasks/tatqa_tiny.json",
         "domain": "finance",
@@ -120,8 +144,25 @@ TASK_CONFIGS: Dict[str, Dict[str, str]] = {
         "path": "data/tasks/sciq_tiny.json",
         "domain": "science",
     },
+    # HPC full datasets
+    "medqa_train": {
+        "path": "data/tasks/train_med.jsonl",
+        "domain": "medical",
+    },
+    "math_train": {
+        "path": "data/tasks/test_math.jsonl",
+        "domain": "math",
+    },
+    "sciq_train": {
+        "path": "data/tasks/sciq_train.jsonl",
+        "domain": "science",
+    },
+    "sciq_val": {
+        "path": "data/tasks/sciq_val.jsonl",
+        "domain": "science",
+    },
     "sciq_test": {
-        "path": "data/tasks/sciq_tiny.json",
+        "path": "data/tasks/sciq_test.jsonl",
         "domain": "science",
     },
 }

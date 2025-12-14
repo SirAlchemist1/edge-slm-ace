@@ -14,10 +14,10 @@
 # -----------------------------------------------------------------------------
 models:
   # Tiny model for smoke tests (CPU only due to Torch security restrictions)
-  - name: tiny-gpt2
-    hf_id: sshleifer/tiny-gpt2
-    max_context: 1024
-    notes: "CPU only - for smoke tests"
+#  - name: qwen
+#    hf_id: Qwen/Qwen2.5-3B-Instruct
+#    max_context: 1024
+#    notes: "CPU only - for smoke tests"
     
   # Production models
   - name: phi-3-mini
@@ -42,20 +42,30 @@ models:
 # Tasks / Datasets
 # -----------------------------------------------------------------------------
 tasks:
-  - name: tatqa_tiny
-    task_name: tatqa_tiny
-    domain: finance
-    description: "Financial QA from TAT-QA dataset (3 examples)"
-    
-  - name: medqa_tiny
-    task_name: medqa_tiny
+  - name: medqa_train
+    task_name: medqa_train
     domain: medical
-    description: "Medical QA (3 examples)"
-    
-  - name: iot_tiny
-    task_name: iot_tiny
-    domain: iot
-    description: "IoT anomaly detection (5 examples)"
+    description: "Medical QA training set (full MedQA dataset)"
+
+  - name: math_train
+    task_name: math_train
+    domain: math
+    description: "Math word problems training set"
+
+#  - name: sciq_train
+#    task_name: sciq_train
+#    domain: science
+#    description: "Science QA training set (11,679 examples)"
+#
+#  - name: sciq_val
+#    task_name: sciq_val
+#    domain: science
+#    description: "Science QA validation set (1,000 examples)"
+
+  - name: sciq_test
+    task_name: sciq_test
+    domain: science
+    description: "Science QA test set (1,000 examples)"
 
 # -----------------------------------------------------------------------------
 # Evaluation Modes
@@ -142,7 +152,7 @@ modes:
 # Available: cpu, cuda, mps
 # The grid runner will check availability and fall back to cpu if needed
 devices:
-  - cpu
+  - cuda
   # Uncomment when running on GPU
   # - cuda
   # - mps
@@ -156,12 +166,12 @@ defaults:
   
   # Default limit per experiment (None = all examples)
   # Set to small number for quick smoke tests
-  limit: null
+  #limit: 2000 # Limit to 100 examples per task for reasonable runtime
   
   # Generation parameters
   max_new_tokens: 256
-  temperature: 0.7
-  top_p: 0.95
+  temperature: 0.0  # Use greedy decoding to avoid CUDA numerical instability
+  top_p: 1.0
   
   # Playbook settings
   playbook_dir: playbooks

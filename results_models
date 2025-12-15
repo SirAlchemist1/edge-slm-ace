@@ -1,0 +1,6 @@
+<script>start("/Users/jarvis/TINY ACE/results_models/");</script>
+<script>onHasParentDirectory();</script>
+<script>addRow("mistral_7b_instruct","mistral_7b_instruct",1,128,"128 B",1765737721,"12/14/25, 1:42:01 PM");</script>
+<script>addRow("phi_3_mini","phi_3_mini",1,128,"128 B",1765737721,"12/14/25, 1:42:01 PM");</script>
+<script>addRow("tinyllama_1.1b","tinyllama_1.1b",1,96,"96 B",1765737721,"12/14/25, 1:42:01 PM");</script>
+<script>addRow(".DS_Store",".DS_Store",0,8196,"8.0 kB",1765737721,"12/14/25, 1:42:01 PM");</script>

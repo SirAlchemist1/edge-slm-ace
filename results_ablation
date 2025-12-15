@@ -1,0 +1,7 @@
+<script>start("/Users/jarvis/TINY ACE/results_ablation/");</script>
+<script>onHasParentDirectory();</script>
+<script>addRow("baseline","baseline",1,96,"96 B",1765767036,"12/14/25, 9:50:36 PM");</script>
+<script>addRow("tinyace_ablate_no_failure","tinyace_ablate_no_failure",1,96,"96 B",1765767036,"12/14/25, 9:50:36 PM");</script>
+<script>addRow("tinyace_ablate_no_recency","tinyace_ablate_no_recency",1,96,"96 B",1765767036,"12/14/25, 9:50:36 PM");</script>
+<script>addRow("tinyace_ablate_no_vagueness","tinyace_ablate_no_vagueness",1,96,"96 B",1765767036,"12/14/25, 9:50:36 PM");</script>
+<script>addRow("tinyace_fifo","tinyace_fifo",1,96,"96 B",1765767036,"12/14/25, 9:50:36 PM");</script>

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `tinyace_plots.py` module automatically generates all paper figures from standardized evaluation results. It reads CSV files from the `results/` directory and generates publication-ready PDF and PNG figures.
+The `scripts/tinyace_plots.py` module automatically generates all paper figures from standardized evaluation results. It reads CSV files from the `results/` directory and generates publication-ready PDF and PNG figures.
 
 ## Quick Start
 
@@ -10,10 +10,10 @@ The `tinyace_plots.py` module automatically generates all paper figures from sta
 
 ```bash
 # Generate all plots from results/
-python tinyace_plots.py
+python -m scripts.tinyace_plots
 
 # Custom paths
-python tinyace_plots.py --results_dir results --output_dir tinyace_plots
+python -m scripts.tinyace_plots --results_dir results --output_dir tinyace_plots
 ```
 
 ### Auto-Generate Plots After Evaluation
@@ -204,7 +204,7 @@ pip install -r requirements.txt
 
 ### Custom Task/Model Selection
 
-The plotting functions accept optional `task` and `model` parameters. You can modify `tinyace_plots.py` to filter specific combinations:
+The plotting functions accept optional `task` and `model` parameters. You can modify `scripts/tinyace_plots.py` to filter specific combinations:
 
 ```python
 # In plot_memory_cliff()

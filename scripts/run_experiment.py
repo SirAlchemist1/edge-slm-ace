@@ -622,9 +622,7 @@ Examples:
         if args.auto_plots:
             try:
                 import sys
-                repo_root = Path(__file__).parent.parent
-                sys.path.insert(0, str(repo_root))
-                from tinyace_plots import main as regenerate_plots
+                from scripts.tinyace_plots import main as regenerate_plots
                 
                 if not args.quiet:
                     print("\nRegenerating plots...")

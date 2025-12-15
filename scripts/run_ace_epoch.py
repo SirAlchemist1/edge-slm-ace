@@ -262,12 +262,8 @@ def main():
     # Optionally regenerate plots
     if args.auto_plots:
         try:
-            import sys
-            from pathlib import Path
             # Import tinyace_plots module
-            repo_root = Path(__file__).parent.parent
-            sys.path.insert(0, str(repo_root))
-            from tinyace_plots import main as regenerate_plots
+            from scripts.tinyace_plots import main as regenerate_plots
             
             print("\n" + "=" * 60)
             print("Regenerating plots...")
@@ -276,7 +272,7 @@ def main():
             print("Plots regenerated successfully.")
         except ImportError as e:
             print(f"\nWarning: Could not import tinyace_plots: {e}")
-            print("Skipping plot regeneration. Run manually with: python tinyace_plots.py")
+            print("Skipping plot regeneration. Run manually with: python -m scripts.tinyace_plots")
         except Exception as e:
             print(f"\nWarning: Plot regeneration failed: {e}")
             print("You can regenerate plots manually with: python tinyace_plots.py")

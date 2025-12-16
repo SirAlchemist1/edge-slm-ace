@@ -13,30 +13,60 @@
 # Models to evaluate
 # -----------------------------------------------------------------------------
 models:
-  # Tiny model for smoke tests (CPU only due to Torch security restrictions)
-#  - name: qwen
-#    hf_id: Qwen/Qwen2.5-3B-Instruct
-#    max_context: 1024
-#    notes: "CPU only - for smoke tests"
-    
+  # -----------------------------------------------------------------------------
+  # Original TinyACE baselines
+  # -----------------------------------------------------------------------------
   # Production models
   - name: phi-3-mini
     hf_id: microsoft/Phi-3-mini-4k-instruct
     max_context: 4096
+    params: "3.8B"
+    family: phi
     notes: "Good balance of size and capability"
     precision: "fp16"  # Can be fp16, int8, int4 for quantization
   
   - name: tinyllama-1.1b
     hf_id: TinyLlama/TinyLlama-1.1B-Chat-v1.0
     max_context: 2048
+    params: "1.1B"
+    family: llama
     notes: "Ultra-lightweight 1.1B parameter model"
     precision: "fp16"
   
   - name: mistral-7b-instruct
     hf_id: mistralai/Mistral-7B-Instruct-v0.3
     max_context: 8192
+    params: "7B"
+    family: mistral
     notes: "7B parameter model (assumes 4-bit quantization handled externally)"
     precision: "int4"  # Assume 4-bit quantization
+
+  # -----------------------------------------------------------------------------
+  # Qwen2.5 Rivals (parameter-matched for fair comparison)
+  # -----------------------------------------------------------------------------
+  - name: qwen-2.5-1.5b
+    hf_id: Qwen/Qwen2.5-1.5B-Instruct
+    max_context: 4096
+    params: "1.5B"
+    family: qwen
+    notes: "Qwen2.5 rival to TinyLlama-1.1B"
+    precision: "fp16"
+
+  - name: qwen-2.5-3b
+    hf_id: Qwen/Qwen2.5-3B-Instruct
+    max_context: 4096
+    params: "3B"
+    family: qwen
+    notes: "Qwen2.5 rival to Phi-3-mini"
+    precision: "fp16"
+
+  - name: qwen-2.5-7b
+    hf_id: Qwen/Qwen2.5-7B-Instruct
+    max_context: 8192
+    params: "7B"
+    family: qwen
+    notes: "Qwen2.5 rival to Mistral-7B"
+    precision: "fp16"
 
 # -----------------------------------------------------------------------------
 # Tasks / Datasets

@@ -70,10 +70,30 @@ MODEL_CONFIGS: Dict[str, ModelConfig] = {
         top_p=0.9,
     ),
     # Qwen models - use greedy decoding to avoid CUDA numerical instability
+    # These are parameter-matched rivals to TinyLlama (1.1B), Phi-3 (3.8B), and Mistral (7B)
+    "qwen-2.5-1.5b": ModelConfig(
+        model_id="Qwen/Qwen2.5-1.5B-Instruct",
+        max_new_tokens=256,
+        temperature=0.0,  # Greedy decoding for reproducibility
+        top_p=1.0,
+    ),
     "qwen-2.5-3b": ModelConfig(
         model_id="Qwen/Qwen2.5-3B-Instruct",
         max_new_tokens=256,
-        temperature=0.0,  # Greedy decoding to avoid CUDA assertion errors
+        temperature=0.0,  # Greedy decoding for reproducibility
+        top_p=1.0,
+    ),
+    "qwen-2.5-7b": ModelConfig(
+        model_id="Qwen/Qwen2.5-7B-Instruct",
+        max_new_tokens=256,
+        temperature=0.0,  # Greedy decoding for reproducibility
+        top_p=1.0,
+    ),
+    # TinyLlama - match settings for fair comparison
+    "tinyllama-1.1b": ModelConfig(
+        model_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+        max_new_tokens=256,
+        temperature=0.0,  # Greedy decoding for reproducibility
         top_p=1.0,
     ),
 }

@@ -1,0 +1,155 @@
+# =============================================================================
+# Qwen2.5 Rival Experiment Contract Configuration
+# =============================================================================
+# This file defines a standardized "experiment contract" for fair comparisons
+# between Qwen2.5 models and existing baselines (TinyLlama, Phi-3, Mistral-7B).
+#
+# Ensures identical conditions across all model families:
+# - Same SciQ slice (n=50, fixed indices, deterministic order)
+# - Same prompt template for baseline and TinyACE
+# - Same decoding settings (temperature, top_p, max_new_tokens, seed)
+# - Same reflection trigger policy
+# - Same working-memory token budgets (WM-256 and WM-512)
+#
+# Usage:
+#   python -m scripts.run_qwen_rivals --config configs/qwen_rivals_contract.yaml
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Experiment Contract: Ensures Fair Comparison
+# -----------------------------------------------------------------------------
+experiment_contract:
+  # Dataset specification
+  dataset:
+    task_name: sciq_test
+    domain: science
+    slice_size: 50  # Fixed n=50 examples
+    slice_start: 0  # Start at index 0
+    deterministic_order: true  # Fixed sequential order, no shuffling
+    seed: 42  # RNG seed for any stochastic operations
+
+  # Generation parameters (IDENTICAL across all models)
+  generation:
+    max_new_tokens: 256
+    temperature: 0.0  # Greedy decoding for reproducibility
+    top_p: 1.0
+    seed: 42
+
+  # Reflection trigger policy (same for all)
+  reflection:
+    reflect_on_incorrect: true
+    reflect_on_correct_every_n: 5  # Occasional reflection on correct answers
+    prune_every_n: 10
+    max_entries_per_domain: 32
+
+  # Working memory budgets to test
+  working_memory_budgets:
+    - 256
+    - 512
+
+# -----------------------------------------------------------------------------
+# Model Families for Comparison
+# -----------------------------------------------------------------------------
+models:
+  # ~1-2B Parameter Class
+  small:
+    - name: tinyllama-1.1b
+      hf_id: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+      params: "1.1B"
+      family: llama
+      notes: "Existing baseline - 1.1B parameters"
+
+    - name: qwen-2.5-1.5b
+      hf_id: Qwen/Qwen2.5-1.5B-Instruct
+      params: "1.5B"
+      family: qwen
+      notes: "Qwen2.5 rival to TinyLlama"
+
+  # ~3-4B Parameter Class
+  medium:
+    - name: phi-3-mini
+      hf_id: microsoft/Phi-3-mini-4k-instruct
+      params: "3.8B"
+      family: phi
+      notes: "Existing baseline - 3.8B parameters"
+
+    - name: qwen-2.5-3b
+      hf_id: Qwen/Qwen2.5-3B-Instruct
+      params: "3B"
+      family: qwen
+      notes: "Qwen2.5 rival to Phi-3-mini"
+
+  # ~7B Parameter Class
+  large:
+    - name: mistral-7b
+      hf_id: mistralai/Mistral-7B-Instruct-v0.3
+      params: "7B"
+      family: mistral
+      notes: "Existing baseline - 7B parameters"
+
+    - name: qwen-2.5-7b
+      hf_id: Qwen/Qwen2.5-7B-Instruct
+      params: "7B"
+      family: qwen
+      notes: "Qwen2.5 rival to Mistral-7B"
+
+# -----------------------------------------------------------------------------
+# Modes to Evaluate
+# -----------------------------------------------------------------------------
+modes:
+  # Baseline: No ACE, vanilla prompting
+  - name: baseline
+    mode: baseline
+    description: "No ACE, vanilla prompting"
+
+  # TinyACE Working Memory 256: Token-budgeted entries (256 tokens)
+  - name: tinyace_wm_256
+    mode: ace
+    ace_mode: ace_working_memory
+    working_memory_token_budget: 256
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    description: "TinyACE with 256 token working memory budget"
+
+  # TinyACE Working Memory 512: Token-budgeted entries (512 tokens)
+  - name: tinyace_wm_512
+    mode: ace
+    ace_mode: ace_working_memory
+    working_memory_token_budget: 512
+    top_k: 5
+    prune_every_n: 10
+    max_entries_per_domain: 32
+    description: "TinyACE with 512 token working memory budget"
+
+# -----------------------------------------------------------------------------
+# Devices
+# -----------------------------------------------------------------------------
+devices:
+  - cuda  # Primary: NVIDIA GPU (A100 recommended)
+  # - cpu  # Fallback
+
+# -----------------------------------------------------------------------------
+# Output Configuration
+# -----------------------------------------------------------------------------
+output:
+  results_dir: results/qwen_rivals
+  paper_snippets_dir: paper_snippets
+  figures_dir: results/qwen_rivals/figures
+  
+  # File naming patterns
+  results_filename: results_models_qwen.json
+  stability_filename: results_stability_qwen.csv
+  
+  # Figure naming patterns
+  sweetspot_figure: sweetspot_qwen_bar
+  stability_figure: stability_curves_qwen
+
+# -----------------------------------------------------------------------------
+# Logging and Tracking
+# -----------------------------------------------------------------------------
+logging:
+  log_tokenizer_counts: true  # Log token counts for tokenization efficiency analysis
+  log_prompt_tokens: true     # Track average prompt tokens per model
+  log_total_tokens: true      # Track average total tokens (prompt + output)
+  verbose: true

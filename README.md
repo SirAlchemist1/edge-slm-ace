@@ -40,6 +40,18 @@ Instead of updating model weights, TinyACE evolves the prompt context through a 
 
 **Insight**: ACE is most effective for medium-capability models (3-4B parameters).
 
+### Qwen2.5 Rival Comparison
+
+We provide parameter-matched Qwen2.5 rivals to validate findings across model families:
+
+| Size Class | Baseline Model | Qwen2.5 Rival | Notes |
+|------------|----------------|---------------|-------|
+| **Small (~1-2B)** | TinyLlama-1.1B | Qwen2.5-1.5B-Instruct | Test if ACE hurts small models |
+| **Medium (~3-4B)** | Phi-3-mini-3.8B | Qwen2.5-3B-Instruct | Test ACE "sweet spot" |
+| **Large (~7B)** | Mistral-7B | Qwen2.5-7B-Instruct | Test if large models need ACE |
+
+Run `python -m scripts.run_qwen_rivals` to generate paper-ready comparison artifacts.
+
 ### Ablation Study Results (Phi-3 Mini, 256 token budget)
 
 | Configuration | OMA Accuracy | Semantic Similarity | Key Finding |
@@ -176,6 +188,40 @@ python -m scripts.tinyace_plots
 # Custom paths
 python -m scripts.tinyace_plots --results_dir results --output_dir plots
 ```
+
+### Run Qwen2.5 Rival Experiments
+
+Compare TinyACE against Qwen2.5 models (parameter-matched rivals to TinyLlama, Phi-3, and Mistral-7B):
+
+```bash
+# Run all Qwen2.5 rival experiments
+python -m scripts.run_qwen_rivals
+
+# Or use the shell script
+./scripts/run_qwen_rivals.sh
+
+# Dry run (preview what would be run)
+python -m scripts.run_qwen_rivals --dry-run
+
+# Run only specific model classes
+python -m scripts.run_qwen_rivals --model-class small   # ~1-2B models
+python -m scripts.run_qwen_rivals --model-class medium  # ~3-4B models
+python -m scripts.run_qwen_rivals --model-class large   # ~7B models
+
+# Run specific models only
+python -m scripts.run_qwen_rivals --models qwen-2.5-3b phi-3-mini
+
+# Run on different device
+python -m scripts.run_qwen_rivals --device cpu
+```
+
+**Output artifacts:**
+- `results/qwen_rivals/results_models_qwen.json` - Summary metrics
+- `results/qwen_rivals/results_stability_qwen.csv` - Per-example stability data
+- `results/qwen_rivals/figures/sweetspot_qwen_bar.{pdf,png}` - Comparison bar chart
+- `results/qwen_rivals/figures/stability_curves_qwen.{pdf,png}` - Accuracy over time
+- `paper_snippets/qwen_rivals_table.tex` - LaTeX table for paper
+- `paper_snippets/qwen_rivals_summary.tex` - LaTeX summary text
 
 ---
 
